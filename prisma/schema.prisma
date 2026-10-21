@@ -1,0 +1,491 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// ─── CORE PLATFORM ───────────────────────────────────────────────────────────
+
+model Account {
+  id         String   @id @default(cuid())
+  name       String
+  client_id  String
+  api_key    String
+  active     Boolean  @default(true)
+  created_at DateTime @default(now())
+
+  orders       Order[]
+  reports      Report[]
+  pipelineRuns PipelineRun[]
+  products     Product[]
+  auditLogs    AuditLog[]
+  errorLogs    ErrorLog[]
+}
+
+model Product {
+  id                String    @id @default(cuid())
+  account_id        String
+  ozon_id           String
+  sku               String
+  name              String
+  brand             String?
+  price             Float
+  old_price         Float?
+  currency          String?   @default("USD")
+  stock             Int       @default(0)
+  reserved_stock    Int       @default(0)
+  fbo_stock         Int       @default(0)
+  sales             Int       @default(0)
+  revenue           Float     @default(0)
+  rating            Float?
+  reviews_count     Int       @default(0)
+  content_rating    Float?
+  status            String
+  moderate_status   String?
+  validation_status String?
+  status_name       String?
+  variant_group_id  String?
+  is_variant        Boolean   @default(false)
+  ozon_created_at   DateTime?
+  volume_weight     Float?
+  category_name     String?
+  health            String?
+  images_json       String?
+  attributes_json   String?
+
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  account              Account              @relation(fields: [account_id], references: [id], onDelete: Cascade)
+  ai_analysis          AIAnalysis?
+  competitor_data      CompetitorData?
+  amazon_reference     AmazonReference?
+  agent_tasks          AgentTask[]
+  workflow_state       WorkflowState?
+  agent_memories       AgentMemory[]
+  execution_logs       AgentExecutionLog[]
+  workflow_approvals   WorkflowApproval[]
+
+  @@unique([account_id, ozon_id])
+  @@index([sku])
+  @@index([brand])
+  @@index([category_name])
+}
+
+// ─── EXISTING TABLES (mirrors exact SQLite schema — DO NOT ALTER) ─────────────
+
+// Existing legacy table — preserved exactly
+model AIAnalysis {
+  id                 String   @id @default(cuid())
+  product_id         String   @unique
+  health_score       Int      @default(0)
+  amazon_data_json   String?
+  seo_title          String?
+  seo_description    String?
+  seo_keywords       String?
+  missing_attributes String?
+  suggested_price    Float?
+  confidence_score   Int      @default(0)
+  ai_report_json     String?
+  last_analyzed      DateTime @default(now())
+  product            Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+}
+
+// Existing — preserved exactly (200 rows)
+model ProductWorkflow {
+  id                       String  @id @default(cuid())
+  product_id               String  @unique
+  amazon_status            String? @default("PENDING")
+  amazon_completed_at      String?
+  amazon_confidence        Int?
+  amazon_asin              String?
+  amazon_price             Float?
+  amazon_rating            Float?
+  amazon_reviews           Int?
+  compliance_status        String? @default("PENDING")
+  compliance_completed_at  String?
+  compliance_flags         String?
+  groq_seo_status          String? @default("PENDING")
+  groq_seo_completed_at    String?
+  groq_suggested_title     String?
+  groq_keywords            String?
+  listing_opt_status       String? @default("PENDING")
+  listing_opt_completed_at String?
+  competitor_status        String? @default("PENDING")
+  competitor_completed_at  String?
+  competitor_min_price     Float?
+  competitor_max_price     Float?
+  competitor_avg_price     Float?
+  buybox_price             Float?
+  cost_calc_status         String? @default("PENDING")
+  cost_calc_completed_at   String?
+  landed_cost              Float?
+  suggested_price          Float?
+  expected_margin          Float?
+  expected_profit          Float?
+  roi                      Float?
+  approval_status          String? @default("PENDING")
+  approved_at              String?
+  approved_by              String?
+  created_at               String?
+  updated_at               String?
+}
+
+// Existing — preserved exactly (200 rows, REAL columns)
+model SEOAnalysis {
+  id                        String  @id @default(cuid())
+  product_id                String  @unique
+  score_total               Float?
+  score_russian_keywords    Float?
+  score_missing_keywords    Float?
+  score_competitor_overlap  Float?
+  score_category_coverage   Float?
+  score_attribute_complete  Float?
+  score_brand               Float?
+  score_variant             Float?
+  score_content_rating      Float?
+  score_image_quality       Float?
+  score_title_quality       Float?
+  score_description_quality Float?
+  score_review_count        Float?
+  score_rating              Float?
+  score_visibility          Float?
+  russian_kw_found          String?
+  russian_kw_missing        String?
+  competitor_kw_overlap     String?
+  title_word_count          Int?
+  description_char_count    Int?
+  image_count               Int?
+  attribute_count           Int?
+  missing_attributes        String?
+  has_live_sales            Int?    @default(0)
+  has_live_impressions      Int?    @default(0)
+  has_live_conversion       Int?    @default(0)
+  created_at                String?
+  updated_at                String?
+}
+
+// Existing — preserved exactly (11971 rows)
+model ListingOptimization {
+  id                       String  @id @default(cuid())
+  product_id               String  @unique
+  account_id               String?
+  seo_score                Float?
+  content_rating           Float?
+  visibility_score         Float?
+  optimization_score       Float?
+  problem_count            Int?    @default(0)
+  recommendations          String?
+  expected_revenue_gain    Float?
+  expected_traffic_gain    Float?
+  expected_conversion_gain Float?
+  approval_status          String? @default("PENDING")
+  priority                 String? @default("LOW")
+  workflow_id              String?
+  seo_breakdown            String?
+  evidence                 String?
+  data_source              String? @default("ERP Database")
+  last_updated             String?
+  has_live_revenue         Int?    @default(0)
+  created_at               String?
+  updated_at               String?
+  // NOTE: No Prisma relation — table was created outside Prisma
+  @@map("ListingOptimization")
+}
+
+// Existing — preserved exactly (17 rows)
+model AgentRun {
+  id               String    @id @default(cuid())
+  agent_name       String
+  status           String    @default("RUNNING")
+  products_scanned Int       @default(0)
+  tasks_created    Int       @default(0)
+  tasks_auto_fixed Int       @default(0)
+  error_message    String?
+  started_at       DateTime  @default(now())
+  completed_at     DateTime?
+}
+
+// Existing — preserved exactly (1105 rows)
+model AgentTask {
+  id                String    @id @default(cuid())
+  account_id        String?
+  product_id        String?
+  agent_name        String
+  severity          String    @default("MODERATE")
+  status            String    @default("PENDING")
+  risk_level        String    @default("LOW")
+  what_is_wrong     String
+  why_is_wrong      String?
+  suggested_value   String?
+  expected_benefit  String?
+  safe_to_auto      Boolean   @default(false)
+  field_name        String?
+  before_value      String?
+  after_value       String?
+  compliance_passed Boolean   @default(false)
+  compliance_note   String?
+  applied_at        DateTime?
+  applied_by        String?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+  product           Product?  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+}
+
+model CompetitorData {
+  id               String   @id @default(cuid())
+  product_id       String   @unique
+  competitor_count Int      @default(0)
+  avg_price        Float?
+  lowest_price     Float?
+  highest_price    Float?
+  rank_position    Int?
+  last_updated     DateTime @default(now())
+  product          Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+}
+
+// ─── NEW TABLES ONLY (pure additions, zero destructive changes) ──────────────
+
+// NEW: Amazon product match reference (does not exist yet — safe to add)
+model AmazonReference {
+  id               String   @id @default(cuid())
+  product_id       String   @unique
+  asin             String
+  match_confidence Int      @default(0)
+  selling_price    Float?
+  rating           Float?
+  review_count     Int      @default(0)
+  images_json      String?
+  attributes_json  String?
+  variants_json    String?
+  source_url       String?
+  created_at       String?
+  updated_at       String?
+  product          Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@index([asin])
+}
+
+// NEW: LangGraph workflow state (resumable per-product pipeline)
+model WorkflowState {
+  id                       String   @id @default(cuid())
+  product_id               String   @unique
+  current_agent            String   @default("AMAZON_CROSS_REFERENCE")
+  status                   String   @default("PENDING")
+  completed_agents         String   @default("[]")
+  failed_agent             String?
+  retry_count              Int      @default(0)
+  execution_time_ms        Int      @default(0)
+  amazon_status            String   @default("PENDING")
+  amazon_completed_at      String?
+  compliance_status        String   @default("PENDING")
+  compliance_completed_at  String?
+  groq_seo_status          String   @default("PENDING")
+  groq_seo_completed_at    String?
+  listing_opt_status       String   @default("PENDING")
+  listing_opt_completed_at String?
+  competitor_status        String   @default("PENDING")
+  competitor_completed_at  String?
+  cost_calc_status         String   @default("PENDING")
+  cost_calc_completed_at   String?
+  created_at               String?
+  updated_at               String?
+  product                  Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([current_agent])
+}
+
+// NEW: AI Agent memory (learns from approvals/rejections)
+model AgentMemory {
+  id           String   @id @default(cuid())
+  product_id   String
+  agent_name   String
+  memory_type  String
+  memory_key   String
+  memory_value String
+  confidence   Int      @default(100)
+  created_at   String?
+  product      Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@index([product_id, agent_name])
+}
+
+// NEW: Per-execution structured log from every agent
+model AgentExecutionLog {
+  id               String   @id @default(cuid())
+  workflow_id      String
+  product_id       String
+  agent_name       String
+  status           String
+  input_payload    String?
+  output_payload   String?
+  confidence_score Int?
+  execution_ms     Int      @default(0)
+  error_message    String?
+  retry_count      Int      @default(0)
+  created_at       String?
+  product          Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@index([agent_name, status])
+  @@index([product_id])
+}
+
+// NEW: Permanent human approval + push audit trail
+model WorkflowApproval {
+  id                String   @id @default(cuid())
+  product_id        String
+  recommendation_id String?
+  action            String
+  approved_by       String   @default("SYSTEM")
+  rejected_reason   String?
+  before_snapshot   String?
+  after_snapshot    String?
+  push_status       String?
+  ozon_api_response String?
+  ozon_updated_at   String?
+  can_rollback      Boolean  @default(false)
+  created_at        String?
+  product           Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@index([action])
+  @@index([push_status])
+}
+
+// NEW: Global AI configuration knobs
+model AISettings {
+  id                         String  @id @default("GLOBAL")
+  min_margin_pct             Float   @default(15.0)
+  min_match_confidence       Int     @default(90)
+  min_seo_score              Int     @default(80)
+  min_content_rating         Int     @default(85)
+  price_protection_pct       Float   @default(5.0)
+  auto_retry_count           Int     @default(3)
+  queue_concurrency          Int     @default(50)
+  groq_model                 String  @default("llama3-70b-8192")
+  google_vision_model        String  @default("gemini-1.5-pro-latest")
+  amazon_scan_freq_hours     Int     @default(168)
+  competitor_scan_freq_hours Int     @default(24)
+  updated_at                 String?
+}
+
+// NEW: Permanent Product Identity mapping
+model ProductIdentity {
+  id              String   @id @default(cuid())
+  account_id      String
+  client_id       String
+  account_name    String?
+  product_id      String   // Ozon specific item ID
+  sku             String?  // Ozon internal SKU
+  offer_id        String   // Often corresponds to local SKU / Article Code
+  article_code    String?  // Sometimes separate string
+  barcode         String?  // EAN/UPC identifier
+  brand           String?
+  category        String?
+  created_at      String?
+  last_sync_at    String?
+  
+  @@unique([product_id])
+  @@index([offer_id])
+  @@index([sku])
+  @@index([barcode])
+  @@index([account_id])
+}
+
+// ─── LEGACY SUPPORT TABLES ───────────────────────────────────────────────────
+
+model Order {
+  id                String   @id @default(cuid())
+  account_id        String
+  posting_number    String
+  status            String
+  customer_name     String?
+  raw_json          String?
+  original_price    Float?
+  original_currency String?
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+  account           Account  @relation(fields: [account_id], references: [id], onDelete: Cascade)
+  statusHistory     OrderStatusHistory[]
+  @@unique([account_id, posting_number])
+}
+
+model OrderStatusHistory {
+  id         String   @id @default(cuid())
+  order_id   String
+  status     String
+  changed_at DateTime @default(now())
+  order      Order    @relation(fields: [order_id], references: [id], onDelete: Cascade)
+}
+
+model Report {
+  id               String   @id @default(cuid())
+  account_id       String
+  pdf_url          String?
+  excel_url        String?
+  orders_processed Int      @default(0)
+  status           String
+  created_at       DateTime @default(now())
+  account          Account  @relation(fields: [account_id], references: [id], onDelete: Cascade)
+}
+
+model PipelineRun {
+  id               String    @id @default(cuid())
+  account_id       String?
+  status           String
+  start_time       DateTime  @default(now())
+  end_time         DateTime?
+  duration         String?
+  orders_processed Int       @default(0)
+  error_message    String?
+  run_dir          String?
+  pid              Int?
+  stage            String?
+  log_excerpt      String?
+  cancelled        Boolean   @default(false)
+  account          Account?  @relation(fields: [account_id], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  account_id String
+  product_id String
+  type       String
+  old_value  String
+  new_value  String
+  status     String
+  error      String?
+  created_at DateTime @default(now())
+  account    Account  @relation(fields: [account_id], references: [id], onDelete: Cascade)
+}
+
+model ErrorLog {
+  id            String   @id @default(cuid())
+  account_id    String?
+  product_id    String?
+  severity      String
+  sku           String?
+  product_name  String?
+  error_type    String
+  message       String
+  root_cause    String?
+  suggested_fix String?
+  status        String   @default("OPEN")
+  related_logs  String?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  account       Account? @relation(fields: [account_id], references: [id], onDelete: Cascade)
+}
+
+model AppSetting {
+  id                       String   @id @default("default")
+  telegram_bot_token       String?
+  telegram_chat_ids        String?
+  notify_on_dashboard_runs Boolean  @default(false)
+  translation_provider     String   @default("google")
+  grok_api_key             String?
+  updated_at               DateTime @updatedAt
+}
