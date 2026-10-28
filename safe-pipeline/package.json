@@ -1,0 +1,23 @@
+{
+  "dependencies": {
+    "@clack/prompts": "^1.1.0",
+    "@supabase/supabase-js": "^2.99.3",
+    "cli-table3": "^0.6.5",
+    "groq-sdk": "^1.1.2",
+    "picocolors": "^1.1.1",
+    "playwright-core": "^1.60.0",
+    "sharp": "^0.34.5",
+    "tesseract.js": "^7.0.0"
+  },
+  "name": "l98-clean",
+  "version": "1.0.0",
+  "description": "Scrapes products from Amazon.in, stores them in Supabase, and pushes them to Ozon.ru. Built with Bun. No framework, no monorepo — just standalone scripts that run in sequence.",
+  "main": "m1-m3-scraper.js",
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

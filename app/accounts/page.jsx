@@ -1,8 +1,7 @@
-import Link from 'next/link';
 import { prisma } from '../../lib/prisma';
 import { redirect } from 'next/navigation';
 import AccountForm from './AccountForm';
-import DeleteAccount from './DeleteAccount';
+import AccountsList from './AccountsList';
 
 async function addAccount(_previous, formData) {
   'use server';
@@ -33,7 +32,12 @@ async function deleteAccount(formData) {
 
 function formatSync(value) {
   if (!value) return 'Never synced';
-  return new Date(value).toLocaleString('en-IN');
+  return new Date(value).toLocaleString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 export default async function AccountsPage({ searchParams }) {
@@ -66,75 +70,26 @@ export default async function AccountsPage({ searchParams }) {
       clientId: account.client_id,
       active: account.active,
       ordersToday: summed == null ? 0 : summed,
-      lastSuccess: lastSuccess?.start_time || null,
+      lastSync: formatSync(lastSuccess?.start_time || null),
       running: Boolean(running),
     };
   }));
 
   return (
     <div className="accounts-page">
-      <header className="page-head">
-        <h1>Accounts</h1>
-        <p className="page-lead">Manage your Ozon seller accounts. Add a client ID and API key, then run the pipeline for that account.</p>
+      <header className="accounts-head">
+        <div>
+          <h1>Accounts</h1>
+          <p>Manage your Ozon seller accounts. Add a client ID and API key, then run the pipeline for that account.</p>
+        </div>
+        <div className="dash-status-pill">
+          <span className="dash-status-dot" />
+          <span>Database connected</span>
+        </div>
       </header>
 
       <AccountForm action={addAccount} saved={searchParams?.added === '1'} />
-
-      <section className="stat-card accounts-table-card">
-        <div className="accounts-table-head">
-          <h2>Accounts</h2>
-          <p>Connected seller accounts and their current status.</p>
-        </div>
-
-        {rows.length === 0 ? (
-          <p className="empty-cell">No accounts yet. Use the form above to add one.</p>
-        ) : (
-          <div className="table-wrap">
-            <table className="data-table accounts-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Client ID</th>
-                  <th>Status</th>
-                  <th>Last sync</th>
-                  <th>Orders today</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((account) => (
-                  <tr key={account.id}>
-                    <td className="accounts-name">{account.name}</td>
-                    <td className="run-id">{account.clientId}</td>
-                    <td>
-                      <span className={account.active ? 'dash-badge dash-badge-on' : 'dash-badge'}>
-                        {account.active ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                    <td>{formatSync(account.lastSuccess)}</td>
-                    <td>{account.ordersToday}</td>
-                    <td>
-                      <div className="accounts-actions">
-                        {account.running ? (
-                          <Link className="dash-outline accounts-run" href={`/pipeline?accountId=${account.id}`} aria-disabled="true">
-                            Running
-                          </Link>
-                        ) : (
-                          <Link className="dash-outline accounts-run" href={`/pipeline?accountId=${account.id}`}>
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
-                            Run
-                          </Link>
-                        )}
-                        <DeleteAccount action={deleteAccount} id={account.id} name={account.name} />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      <AccountsList rows={rows} deleteAction={deleteAccount} />
     </div>
   );
 }

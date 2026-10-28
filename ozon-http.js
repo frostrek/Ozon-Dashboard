@@ -8,9 +8,6 @@ const BLOCK_MS = 6 * 60 * 60 * 1000;
 const STAMP = path.join(process.cwd(), 'runs', '.ozon-rate');
 const BLOCKS = path.join(process.cwd(), 'runs', '.ozon-blocks.json');
 const LOCK = `${STAMP}.lock`;
-const ALREADY_PAUSED = {
-  '3200337': 24 * 60 * 60 * 1000,
-};
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -42,16 +39,7 @@ function writeJson(file, value) {
 }
 
 function blocks() {
-  const saved = readJson(BLOCKS);
-  let changed = false;
-  for (const [clientId, windowMs] of Object.entries(ALREADY_PAUSED)) {
-    if (!saved[clientId]) {
-      saved[clientId] = Date.now() + windowMs;
-      changed = true;
-    }
-  }
-  if (changed) writeJson(BLOCKS, saved);
-  return saved;
+  return readJson(BLOCKS);
 }
 
 function pauseMessage(until) {

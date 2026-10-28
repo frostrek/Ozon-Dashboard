@@ -1,7 +1,6 @@
 import { cookies } from 'next/headers';
 import { Inter } from 'next/font/google';
 import './globals.css';
-import SyncStatusTracker from './SyncStatusTracker';
 import SidebarNav from './SidebarNav';
 import LogoutButton from './LogoutButton';
 import { COOKIE_NAME, verifySessionToken } from '../lib/auth';
@@ -34,11 +33,6 @@ export default async function RootLayout({ children }) {
             </aside>
 
             <main className="main-content">
-              <header className="topbar">
-                <div className="title">Workspace</div>
-                <SyncStatusTracker />
-              </header>
-
               <div className="content-area">
                 {children}
               </div>

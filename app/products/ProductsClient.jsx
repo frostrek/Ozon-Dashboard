@@ -91,7 +91,27 @@ function fmtDate(value) {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleDateString('en-IN');
+  return date.toLocaleDateString('en-GB');
+}
+
+function statusTone(product) {
+  const label = String(product.status_name || '');
+  if (product.status === 'ERROR' || /error|ошиб/i.test(label)) return 'bad';
+  if (/improv|улучш/i.test(label)) return 'warn';
+  if (product.status === 'ACTIVE' || /прода/i.test(label)) return 'ok';
+  return 'muted';
+}
+
+function ActionIcon({ name }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      {name === 'sync' && <path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v6h-6" />}
+      {name === 'down' && <><path d="M12 4v10" /><path d="M8 10l4 4 4-4" /><path d="M5 19h14" /></>}
+      {name === 'up' && <><path d="M12 16V6" /><path d="M8 10l4-4 4 4" /><path d="M5 19h14" /></>}
+      {name === 'plus' && <path d="M12 5v14M5 12h14" />}
+      {name === 'box' && <path d="M4 8l8-4 8 4-8 4-8-4zM4 8v8l8 4 8-4V8M12 12v8" />}
+    </svg>
+  );
 }
 
 function ProductImage({ product }) {
@@ -379,7 +399,9 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
   if (products.length === 0) {
     empty = {
       title: 'No products yet',
-      text: 'No products are stored for the connected accounts.',
+      text: 'This page only shows products fetched from your Ozon seller account. A catalog push does not fill this list until Ozon has the product and you sync.',
+      action: syncing ? 'Syncing...' : 'Sync from Ozon',
+      onClick: syncFromOzon,
     };
   } else if (groupEntries.length === 0 && search.trim()) {
     empty = {
@@ -399,19 +421,22 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
 
   return (
     <div className="prod-page">
-      <header className="prod-head">
+      <header className="prod-hero">
         <div>
+          <p className="prod-kicker-page">Products</p>
           <h1>Products</h1>
-          <p className="page-lead">Review stored Ozon products, then open a row for stock, images, and the listing editor.</p>
-          <p className="prod-count">{products.length} {products.length === 1 ? 'product' : 'products'}</p>
+          <p>Manage your Ozon catalog, monitor listing quality, and keep product information up to date.</p>
         </div>
-        <div className="prod-head-actions">
-          <button type="button" className="dash-outline" onClick={syncFromOzon} disabled={syncing}>
-            {syncing ? 'Syncing...' : 'Sync from Ozon'}
-          </button>
-          <a className="dash-outline" href="/api/products/import/template">Download template</a>
-          <button type="button" className="dash-outline" onClick={() => { setNotice(''); setUploading(true); }}>Upload spreadsheet</button>
-          <button type="button" className="dash-primary" onClick={() => { setNotice(''); setAdding(true); }}>Add products</button>
+        <div className="prod-hero-art" aria-hidden="true">
+          <svg viewBox="0 0 180 92">
+            <path d="M8 58c28-18 52-18 80 0s52 18 84 0" fill="none" stroke="#DBEAFE" strokeWidth="10" strokeLinecap="round" />
+            <rect x="28" y="28" width="34" height="26" rx="4" fill="#F8FAFC" stroke="#93C5FD" />
+            <rect x="48" y="18" width="34" height="26" rx="4" fill="#FFFFFF" stroke="#2563EB" />
+            <path d="M118 22h28l10 12v24H118z" fill="#EFF6FF" stroke="#2563EB" />
+            <path d="M124 22v12h22" fill="none" stroke="#2563EB" />
+            <circle cx="128" cy="62" r="3" fill="#2563EB" />
+            <circle cx="148" cy="62" r="3" fill="#2563EB" />
+          </svg>
         </div>
       </header>
       {syncText && <p className="notice notice-warn" role="status">{syncText}</p>}
@@ -423,6 +448,20 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
         onRetry={() => sendProducts(report.results.filter((row) => row.status === 'failed' && row.productId).map((row) => row.productId))}
       />
 
+      <section className="prod-board">
+      <div className="prod-command">
+        <p className="prod-count"><ActionIcon name="box" />{products.length.toLocaleString('en-US')} {products.length === 1 ? 'Product' : 'Products'}</p>
+        <div className="prod-head-actions">
+          <button type="button" className="dash-outline" onClick={syncFromOzon} disabled={syncing}>
+            <ActionIcon name="sync" />
+            {syncing ? 'Syncing...' : 'Sync from Ozon'}
+          </button>
+          <a className="dash-outline" href="/api/products/import/template"><ActionIcon name="down" />Download template</a>
+          <button type="button" className="dash-outline" onClick={() => { setNotice(''); setUploading(true); }}><ActionIcon name="up" />Upload spreadsheet</button>
+          <button type="button" className="dash-primary" onClick={() => { setNotice(''); setAdding(true); }}><ActionIcon name="plus" />Add products</button>
+        </div>
+      </div>
+
       <div className="prod-tabs" role="tablist" aria-label="Product status">
         {TABS.map((tab) => (
           <button
@@ -433,8 +472,9 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
             className={activeTab === tab.id ? 'prod-tab is-on' : 'prod-tab'}
             onClick={() => setActiveTab(tab.id)}
           >
+            <span className={`prod-dot is-${tab.id.toLowerCase()}`} aria-hidden="true" />
             {tab.label}
-            <span>{counts[tab.id]}</span>
+            <span className="prod-tab-count">{counts[tab.id].toLocaleString('en-US')}</span>
           </button>
         ))}
       </div>
@@ -446,7 +486,7 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
             type="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Name, article code, SKU, barcode"
+            placeholder="Search by name, article code, SKU, or barcode"
             aria-label="Search products"
           />
           {search && <button type="button" onClick={() => setSearch('')} aria-label="Clear search">Clear</button>}
@@ -465,7 +505,10 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
         {(filtersActive || search) && (
           <button type="button" className="dash-outline prod-clear" onClick={clearFilters}>Clear filters</button>
         )}
-        {selection.length > 0 && <span className="prod-selected">{selection.length} selected</span>}
+      </div>
+
+      <div className="prod-selection">
+        <span>{selection.length.toLocaleString('en-US')} selected</span>
         {selection.length > 0 && (
           <button type="button" className="dash-primary" onClick={() => sendProducts(selection)} disabled={importing}>
             {importing ? 'Sending...' : 'Add to Ozon'}
@@ -514,7 +557,7 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
               const barcode = barcodeOf(main);
               return (
                 <React.Fragment key={groupId}>
-                  <tr>
+                  <tr className={selection.includes(main.id) ? 'is-selected' : ''}>
                     <td>
                       <input type="checkbox" aria-label={`Select ${main.name}`} checked={selection.includes(main.id)} onChange={() => toggleSelect(main.id)} />
                     </td>
@@ -528,7 +571,7 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
                       </div>
                     </td>
                     <td className="prod-name">
-                      <button type="button" onClick={() => setSelected(main)}>{main.name || '—'}</button>
+                      <button type="button" title={main.name || ''} onClick={() => setSelected(main)}>{main.name || '—'}</button>
                       {isVariantGroup && (
                         <button type="button" className="prod-variants" onClick={() => setShowVariants({ ...showVariants, [groupId]: !isOpen })}>
                           {isOpen ? 'Hide variants' : `Variants (${group.length})`}
@@ -536,16 +579,16 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
                       )}
                     </td>
                     <td>
-                      <span className={main.status === 'ACTIVE' ? 'pipe-badge pipe-badge-ok' : main.status === 'ERROR' ? 'pipe-badge pipe-badge-bad' : 'pipe-badge pipe-badge-muted'}>
+                      <span className={`prod-status is-${statusTone(main)}`}>
                         {main.status_name || main.status || '—'}
                       </span>
                     </td>
-                    <td>{fmtPrice(main.price, main.currency)}</td>
-                    <td>{main.stock == null ? '—' : main.stock}{main.reserved_stock == null ? '' : ` · reserved ${main.reserved_stock}`}</td>
-                    <td className="prod-barcode">{barcode || '—'}</td>
-                    <td>{main.rating == null ? '—' : main.rating}</td>
-                    <td>{main.content_rating == null ? '—' : main.content_rating}</td>
-                    <td>{fmtDate(main.ozon_created_at)}</td>
+                    <td className="prod-price">{fmtPrice(main.price, main.currency)}</td>
+                    <td className="prod-warehouse">{main.stock == null ? '—' : main.stock}{main.reserved_stock == null ? '' : ` · reserved ${main.reserved_stock}`}</td>
+                    <td className="prod-barcode" title={barcode || ''}>{barcode || '—'}</td>
+                    <td className="prod-num">{main.rating == null ? '—' : main.rating}</td>
+                    <td className="prod-num">{main.content_rating == null ? '—' : main.content_rating}</td>
+                    <td className="prod-date">{fmtDate(main.ozon_created_at)}</td>
                     <td className="prod-row-actions">
                       <button type="button" className="prod-open" onClick={() => setSelected(main)}>Open</button>
                       <button type="button" className="prod-delete" onClick={() => { setRemoveError(''); setRemoveTarget(main); }}>Delete</button>
@@ -576,7 +619,7 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
       </div>
 
       {groupEntries.length > 0 && (
-        <nav className="pipe-pager" aria-label="Product pages">
+        <nav className="pipe-pager prod-pager" aria-label="Product pages">
           <span>Showing {rangeStart}–{rangeEnd} of {groupEntries.length}</span>
           <div>
             <button type="button" className="pipe-page-btn" onClick={() => setPage(Math.max(1, currentPage - 1))} disabled={currentPage <= 1}>
@@ -601,6 +644,7 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
           </div>
         </nav>
       )}
+      </section>
 
       <DetailDrawer product={selected} onClose={() => setSelected(null)} onDelete={(product) => { setRemoveError(''); setRemoveTarget(product); }} />
       {removeTarget && (

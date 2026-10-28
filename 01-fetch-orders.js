@@ -27,8 +27,12 @@ export async function fetchOrders(runDir, logger) {
     "Content-Type": "application/json",
   };
 
-  const DATE_TO = new Date();
-  const DATE_FROM = new Date(DATE_TO.getTime() - DAYS_BACK * 24 * 60 * 60 * 1000);
+  const DATE_TO = process.env.PIPELINE_DATE_TO
+    ? new Date(`${process.env.PIPELINE_DATE_TO}T23:59:59.000Z`)
+    : new Date();
+  const DATE_FROM = process.env.PIPELINE_DATE_FROM
+    ? new Date(`${process.env.PIPELINE_DATE_FROM}T00:00:00.000Z`)
+    : new Date(DATE_TO.getTime() - DAYS_BACK * 24 * 60 * 60 * 1000);
 
   const MAX_RETRIES = 3;
   const RETRY_DELAY = 2000;
@@ -84,50 +88,72 @@ export async function fetchOrders(runDir, logger) {
 
   async function fetchAllPostings() {
     const postings = [];
-    let offset = 0;
+    const statusCounts = {};
+    const statusByNumber = {};
+    let seen = 0;
+    let page = 0;
+    let cursor = "";
     const PAGE_SIZE = 50;
 
     logger.info(`📦 Fetching orders (status=${STATUS})...`);
 
     while (true) {
-      // BUG 1 FIX: pass fatal:true so auth errors throw instead of returning null→0 orders
-      const res = await apiFetch(
-        `${BASE_URL}/v3/posting/fbs/list`,
-        {
-          dir: "desc",
-          filter: {
-            since: DATE_FROM.toISOString().replace(/\.\d{3}Z$/, "Z"),
-            to: DATE_TO.toISOString().replace(/\.\d{3}Z$/, "Z"),
-            status: STATUS,
-          },
-          limit: PAGE_SIZE,
-          offset,
-          with: { barcodes: true, financial_data: true, analytics_data: true },
+      const body = {
+        dir: "DESC",
+        filter: {
+          since: DATE_FROM.toISOString().replace(/\.\d{3}Z$/, "Z"),
+          to: DATE_TO.toISOString().replace(/\.\d{3}Z$/, "Z"),
+          status: [STATUS],
         },
-        `Fetch orders (offset=${offset})`,
+        limit: PAGE_SIZE,
+        with: { barcodes: true, financial_data: true, analytics_data: true },
+      };
+      if (cursor) body.cursor = cursor;
+      page += 1;
+
+      const res = await apiFetch(
+        `${BASE_URL}/v4/posting/fbs/list`,
+        body,
+        `Fetch orders (page ${page})`,
         { fatal: true }
       );
 
       if (!res) break;
 
-      const data = (await res.json()).result ?? {};
+      const payload = await res.json();
+      const data = payload.result ?? payload;
       const batch = data.postings ?? [];
-      const hasNext = data.has_next ?? false;
+      const hasNext = Boolean(data.has_next);
+      cursor = data.cursor || "";
 
-      postings.push(...batch);
+      for (const row of batch) {
+        const status = row?.status || "unknown";
+        statusCounts[status] = (statusCounts[status] || 0) + 1;
+        if (row?.posting_number && row.status) statusByNumber[row.posting_number] = row.status;
+        if (row?.status === STATUS) postings.push(row);
+      }
+      seen += batch.length;
+      logger.info(`Read ${seen} orders from Ozon. ${postings.length} are ${STATUS}.`);
       process.stdout.write(`\x1b[2K\r  → ${postings.length} orders fetched...`);
 
       if (ORDER_LIMIT && postings.length >= ORDER_LIMIT) {
-        postings.length = ORDER_LIMIT; // Truncate to exact limit
+        postings.length = ORDER_LIMIT;
         break;
       }
       if (!hasNext || batch.length === 0) break;
-      offset += batch.length;
+      if (!cursor) {
+        throw new Error("Ozon reported more orders but did not return a cursor.");
+      }
     }
 
     process.stdout.write("\n");
-    logger.info(`✅ Fetched ${postings.length} orders`);
-    return postings;
+    const leftOut = seen - postings.length;
+    if (leftOut > 0) {
+      logger.info(`Kept ${postings.length} orders that are ${STATUS}. The other ${leftOut} were only counted, not saved.`);
+    } else {
+      logger.info(`✅ Fetched ${postings.length} orders`);
+    }
+    return { postings, statusCounts, statusByNumber };
   }
 
   async function fetchProductInfo(skusByOffer) {
@@ -249,15 +275,15 @@ export async function fetchOrders(runDir, logger) {
     return postings;
   }
 
-  const postings = await fetchAllPostings();
+  const { postings, statusCounts, statusByNumber } = await fetchAllPostings();
   if (!postings.length) {
     logger.warn("❌ No orders found.");
-    return { count: 0 };
+    return { count: 0, statusCounts, statusByNumber };
   }
 
   const enriched = await enrichPostings(postings);
   await Bun.write(OUTPUT_FILE, JSON.stringify(enriched, null, 2));
-  logger.info(`📄 Saved raw data to ${OUTPUT_FILE}`);
+  logger.info(`📄 Saved ${enriched.length} orders that are ready to pack. The Excel and PDF are built from this file.`);
 
-  return { count: enriched.length };
+  return { count: enriched.length, statusCounts, statusByNumber };
 }

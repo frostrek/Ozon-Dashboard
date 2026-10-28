@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+node_modules
+.next
+out
+runs
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+safe-pipeline/node_modules
+safe-pipeline/brand-cache-*.json
+safe-pipeline/*.traineddata
+*.log

@@ -1,5 +1,6 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 const STATUS_LABEL = {
   AWAITING_PACKAGING: 'Awaiting Packaging',
@@ -36,6 +37,12 @@ function productImage(product) {
   return '';
 }
 
+function waitingForPickup(order) {
+  const ozonStatus = String(order?._parsed?.status || '').trim();
+  if (ozonStatus) return ozonStatus === 'awaiting_deliver';
+  return order?.status === 'AWAITING_DELIVERY';
+}
+
 function moneyFor(order, product) {
   const rows = order?.financial_data?.products || [];
   return rows.find((row) => row.product_id == product?.offer_id || row.product_id == product?.product_id || row.product_id == product?.sku)
@@ -43,13 +50,79 @@ function moneyFor(order, product) {
     || {};
 }
 
+function amountOf(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string') {
+    const num = parseFloat(value);
+    return Number.isFinite(num) ? num : null;
+  }
+  if (typeof value === 'object') return amountOf(value.amount ?? value.value ?? value.price);
+  return null;
+}
+
+function currencyOf(value, fallback = '') {
+  if (!value || typeof value !== 'object') return fallback;
+  return String(value.currency_code || value.currency || fallback || '').trim();
+}
+
+function formatMoney(value, fallbackCurrency = '') {
+  const amount = amountOf(value);
+  if (amount == null) return '—';
+  const currency = currencyOf(value, fallbackCurrency);
+  const shown = amount.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  return currency ? `${shown} ${currency}` : shown;
+}
+
+const OZON_NEXT = {
+  awaiting_packaging: ['awaiting_deliver', 'cancelled'],
+  awaiting_approve: ['awaiting_deliver', 'cancelled'],
+  awaiting_deliver: ['delivering', 'cancelled'],
+  delivering: ['delivered', 'cancelled'],
+  driver_pickup: ['delivered', 'cancelled'],
+};
+
+const TARGET_LABEL = {
+  awaiting_deliver: 'Awaiting Delivery',
+  delivering: 'In Transit',
+  delivered: 'Delivered',
+  cancelled: 'Cancelled',
+};
+
+function sellerCanMove(order) {
+  return String(order?._parsed?.tpl_integration_type || '') !== 'ozon';
+}
+
+function nextTargets(order) {
+  const options = OZON_NEXT[order?._parsed?.status] || [];
+  if (sellerCanMove(order)) return options;
+  return options.filter((status) => status === 'awaiting_deliver' || status === 'cancelled');
+}
+
 function StatusBadge({ status }) {
   const cfg = STATUS_COLOR[status] || { bg: '#F1F5F9', color: '#475569' };
   return (
-    <span style={{ background: cfg.bg, color: cfg.color, padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap' }}>
+    <span className="orders-badge" style={{ background: cfg.bg, color: cfg.color }}>
       {STATUS_LABEL[status] || status}
     </span>
   );
+}
+
+function Icon({ d, children }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      {d ? <path d={d} /> : children}
+    </svg>
+  );
+}
+
+function TabIcon({ name }) {
+  if (name === 'ALL') return <Icon><circle cx="9" cy="20" r="1" /><circle cx="18" cy="20" r="1" /><path d="M3 4h2l2.4 11h11.2l1.6-7H7" /></Icon>;
+  if (name === 'AWAITING_PACKAGING') return <Icon><path d="M3 7.5 12 3l9 4.5-9 4.5L3 7.5Z" /><path d="M3 7.5V16.5L12 21l9-4.5V7.5" /><path d="M12 12v9" /></Icon>;
+  if (name === 'AWAITING_DELIVERY') return <Icon><path d="M3 7h11v8H3z" /><path d="M14 10h4l3 3v2h-7" /><circle cx="7" cy="17.5" r="1.5" /><circle cx="17" cy="17.5" r="1.5" /></Icon>;
+  if (name === 'IN_TRANSIT') return <Icon><path d="M3 12h11" /><path d="m14 12 7-4v8z" /><path d="M6 16h.01M10 16h.01" /></Icon>;
+  if (name === 'DELIVERED') return <Icon><circle cx="12" cy="12" r="8" /><path d="m8.5 12.2 2.3 2.3 4.7-5" /></Icon>;
+  return <Icon><circle cx="12" cy="12" r="8" /><path d="m9 9 6 6M15 9l-6 6" /></Icon>;
 }
 
 function OrderDrawer({ order, onClose }) {
@@ -135,9 +208,9 @@ function OrderDrawer({ order, onClose }) {
           {/* Financial */}
           {d.financial_data?.products?.[0] && (
             <Section title="Financials">
-              <Row label="Customer Paid" value={`₹${d.financial_data.products[0].customer_price?.toLocaleString('en-IN')}`} />
-              <Row label="List Price"    value={`$${d.financial_data.products[0].old_price} USD`} />
-              <Row label="Sale Price"    value={`$${d.financial_data.products[0].price} USD`} />
+              <Row label="Customer Paid" value={formatMoney(d.financial_data.products[0].customer_price)} />
+              <Row label="List Price"    value={formatMoney(d.financial_data.products[0].old_price, 'USD')} />
+              <Row label="Sale Price"    value={formatMoney(d.financial_data.products[0].price, 'USD')} />
               <Row label="Discount"      value={`${d.financial_data.products[0].total_discount_percent?.toFixed(1)}%`} />
             </Section>
           )}
@@ -179,8 +252,13 @@ function Row({ label, value }) {
   );
 }
 
-export default function OrdersClient({ orders, statusCounts, accounts, currentStatus, currentAccount, currentDate, currentSearch }) {
+export default function OrdersClient({ orders, statusCounts, accounts, currentStatus, currentAccount, currentDate, currentSearch, filteredCount = 0, currentPage = 1, pageCount = 1, pageSize = 10, exportIds = [] }) {
+  const router = useRouter();
   const [selected, setSelected] = useState(null);
+  const [statusOverrides, setStatusOverrides] = useState({});
+  const [statusChange, setStatusChange] = useState(null);
+  const [statusBusy, setStatusBusy] = useState(false);
+  const [statusNote, setStatusNote] = useState('');
 
   const buildUrl = (params) => {
     const u = new URLSearchParams();
@@ -188,6 +266,10 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
     if (params.account ?? currentAccount) u.set('account', params.account ?? currentAccount);
     if (params.date    ?? currentDate)    u.set('date',    params.date    ?? currentDate);
     if (params.q       ?? currentSearch)  u.set('q',       params.q       ?? currentSearch);
+    const page = params.page ?? (params.status || params.account || params.date || params.q != null || params.pageSize ? '1' : String(currentPage));
+    const size = params.pageSize ?? String(pageSize);
+    if (page && page !== '1') u.set('page', page);
+    if (size && size !== '10') u.set('pageSize', size);
     return `/orders?${u.toString()}`;
   };
 
@@ -208,10 +290,25 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
   ];
 
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [excelBusy, setExcelBusy] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [docBusy, setDocBusy] = useState('');
+  const [pdfError, setPdfError] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState(currentSearch || '');
+  const [menuId, setMenuId] = useState(null);
+
+  useEffect(() => {
+    setQuery(currentSearch || '');
+    setSearching(false);
+    setSelectedIds(new Set());
+    setMenuId(null);
+  }, [currentSearch, currentStatus, currentAccount, currentDate, currentPage, pageSize]);
   
   const toggleAll = () => {
-      if (selectedIds.size === orders.length) setSelectedIds(new Set());
-      else setSelectedIds(new Set(orders.map(o => o.id)));
+      const pageIds = visibleOrders.map((order) => order.id);
+      if (pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id))) setSelectedIds(new Set());
+      else setSelectedIds(new Set(pageIds));
   };
 
   const toggleOne = (id) => {
@@ -226,97 +323,334 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
       return Math.max(0, days);
   };
 
-  const exportSelectedCsv = () => {
-      if (selectedIds.size === 0) return alert('Select orders first');
-      const subset = orders.filter(o => selectedIds.has(o.id));
-      const headers = ['Posting Number', 'Status', 'Account', 'Title', 'SKU', 'Qty', 'Ship By'];
-      const rows = subset.map(o => {
-          const p = o._parsed;
-          const pr = p.products?.[0] || {};
-          return [ o.posting_number, o.status, o._accountName, pr.name, pr.offer_id, pr.quantity, p.shipment_date ].map(c => `"${c||''}"`).join(',');
+  async function exportSelectedExcel() {
+      const subsetIds = selectedIds.size ? [...selectedIds] : exportIds;
+      if (subsetIds.length === 0 || excelBusy) return;
+      setPdfError('');
+      setExcelBusy(true);
+      try {
+        const response = await fetch('/api/orders/excel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: subsetIds }),
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          setPdfError(data.error || 'The Excel file could not be built.');
+          return;
+        }
+        const blob = await response.blob();
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'orders.xlsx';
+        link.click();
+        URL.revokeObjectURL(link.href);
+      } catch {
+        setPdfError('The Excel file could not be built.');
+      } finally {
+        setExcelBusy(false);
+      }
+  }
+
+  async function downloadOzonDocument(kind) {
+    const chosen = visibleOrders.filter((order) => selectedIds.has(order.id) && (kind !== 'shipping' || waitingForPickup(order)));
+    if (chosen.length === 0 || docBusy) return;
+    setPdfError('');
+    setDocBusy(kind);
+    try {
+      const response = await fetch('/api/labels/documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, orderIds: chosen.map((order) => order.id) }),
       });
-      const csv = [headers.join(','), ...rows].join('\n');
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'orders_export.csv'; a.click();
-  };
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        setPdfError(data.error || 'Ozon did not return the document.');
+        return;
+      }
+      const blob = await response.blob();
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = kind === 'shipping' ? 'ozon-shipping-labels.pdf' : 'ozon-product-list.pdf';
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch {
+      setPdfError('Ozon did not return the document.');
+    } finally {
+      setDocBusy('');
+    }
+  }
+
+  async function exportSelectedPdf() {
+    if (selectedIds.size === 0) return;
+    setPdfError('');
+    setPdfBusy(true);
+    try {
+      const response = await fetch('/api/orders/pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [...selectedIds] }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        setPdfError(data.error || 'The PDF could not be created.');
+        return;
+      }
+      const blob = await response.blob();
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'orders.pdf';
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch {
+      setPdfError('The PDF could not be created.');
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
+  const visibleOrders = orders.map((order) => statusOverrides[order.id] || order);
+
+  function openStatusChange(ids, target) {
+    const chosen = visibleOrders.filter((order) => ids.includes(order.id) && nextTargets(order).includes(target));
+    if (!chosen.length) {
+      setStatusNote('None of the selected orders can move to that status on Ozon.');
+      return;
+    }
+    setStatusNote('');
+    setStatusChange({
+      ids: chosen.map((order) => order.id),
+      target,
+      reasons: [],
+      reasonId: '',
+      message: '',
+      error: '',
+    });
+    if (target === 'cancelled') {
+      fetch('/api/orders/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reasons', ids: [chosen[0].id] }),
+      })
+        .then((response) => response.json())
+        .then((data) => {
+          const reasons = Array.isArray(data.reasons) ? data.reasons : [];
+          setStatusChange((current) => current && current.target === 'cancelled'
+            ? { ...current, reasons, reasonId: reasons[0] ? String(reasons[0].id) : '', error: data.error || '' }
+            : current);
+        })
+        .catch(() => {
+          setStatusChange((current) => current ? { ...current, error: 'Cancellation reasons could not be loaded.' } : current);
+        });
+    }
+  }
+
+  async function confirmStatusChange() {
+    if (!statusChange || statusBusy) return;
+    if (statusChange.target === 'cancelled' && !statusChange.reasonId) {
+      setStatusChange({ ...statusChange, error: 'Choose a cancellation reason.' });
+      return;
+    }
+    setStatusBusy(true);
+    try {
+      const response = await fetch('/api/orders/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ids: statusChange.ids,
+          status: statusChange.target,
+          cancelReasonId: Number(statusChange.reasonId) || undefined,
+          cancelReasonMessage: statusChange.message,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setStatusChange({ ...statusChange, error: data.error || 'Ozon did not change the status.' });
+        return;
+      }
+      const byId = new Map(visibleOrders.map((order) => [order.id, order]));
+      setStatusOverrides((current) => {
+        const next = { ...current };
+        for (const row of data.updated || []) {
+          const order = byId.get(row.id);
+          if (!order) continue;
+          next[row.id] = { ...order, status: row.status, _parsed: { ...order._parsed, status: row.ozonStatus } };
+        }
+        return next;
+      });
+      const firstFailure = data.failed?.[0];
+      if (firstFailure) {
+        const extra = data.failed.length > 1 ? ` ${data.failed.length} orders were not changed.` : '';
+        setStatusChange({ ...statusChange, error: `${firstFailure.postingNumber}: ${firstFailure.error}${extra}` });
+        router.refresh();
+        return;
+      }
+      const updatedCount = Array.isArray(data.updated) ? data.updated.length : 0;
+      setStatusNote(updatedCount ? `Ozon updated ${updatedCount} order${updatedCount === 1 ? '' : 's'}.` : '');
+      setStatusChange(null);
+      setSelected(null);
+      router.refresh();
+    } catch {
+      setStatusChange({ ...statusChange, error: 'Ozon did not change the status.' });
+    } finally {
+      setStatusBusy(false);
+    }
+  }
+
+  const rangeStart = filteredCount === 0 ? 0 : ((currentPage - 1) * pageSize) + 1;
+  const rangeEnd = Math.min(currentPage * pageSize, filteredCount);
+  const pageNumbers = (() => {
+    if (pageCount <= 7) return Array.from({ length: pageCount }, (_, index) => index + 1);
+    const numbers = new Set([1, pageCount]);
+    const start = currentPage <= 4 ? 1 : currentPage >= pageCount - 3 ? Math.max(1, pageCount - 4) : currentPage - 2;
+    const end = currentPage <= 4 ? Math.min(5, pageCount) : currentPage >= pageCount - 3 ? pageCount : currentPage + 2;
+    for (let number = start; number <= end; number += 1) numbers.add(number);
+    const unique = [...numbers].sort((left, right) => left - right);
+    const items = [];
+    unique.forEach((number, index) => {
+      if (index > 0 && number - unique[index - 1] > 1) items.push(`gap-${number}`);
+      items.push(number);
+    });
+    return items;
+  })();
 
   return (
-    <div>
-      <header className="page-head">
-        <h1>Orders</h1>
-        <p className="page-lead">Filter by status, account, or date. Select a row to open the order details.</p>
+    <div className="orders-page">
+      <header className="orders-hero">
+        <div>
+          <h1>Orders</h1>
+          <p>Manage fulfillment, track delivery deadlines, and update order statuses.</p>
+        </div>
+        <div className="orders-art">
+          <img src="/orders-hero.png" alt="" />
+        </div>
       </header>
-      <div className="tabs">
+      <div className="orders-tabs">
         {STATUS_TABS.map(tab => {
           const active = (currentStatus || 'ALL') === tab.key;
+          const count = tab.key === 'ALL' ? statusCounts._total : (statusCounts[tab.key] || 0);
           return (
-            <a key={tab.key} href={buildUrl({ status: tab.key })} className={active ? 'tab tab-active' : 'tab'} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {tab.label}
-              <span style={{
-                background: active ? '#DBEAFE' : '#F1F5F9',
-                color: active ? '#1E40AF' : '#64748B',
-                borderRadius:'10px', padding:'1px 7px', fontSize:'11px', fontWeight:700
-              }}>
-                {tab.key === 'ALL' ? statusCounts._total : (statusCounts[tab.key] || 0)}
+            <a key={tab.key} href={buildUrl({ status: tab.key, page: '1' })} className={`orders-tab${active ? ' is-on' : ''}${tab.key === 'DELIVERED' ? ' is-delivered' : ''}${tab.key === 'CANCELLED' ? ' is-cancelled' : ''}`}>
+              <TabIcon name={tab.key} />
+              <span className="orders-tab-copy">
+                <span>{tab.label}</span>
+                {active ? null : <strong>{Number(count).toLocaleString('en-US')}</strong>}
               </span>
+              {active ? <em>{Number(count).toLocaleString('en-US')}</em> : null}
             </a>
           );
         })}
       </div>
 
-      {/* Filters Row */}
-      <div className="filter-row">
-        <div style={{ display:'flex', gap:'4px', flexWrap:'wrap' }}>
-          {DATE_FILTERS.map(df => (
-            <a key={df.key} href={buildUrl({ date: df.key })} className={(currentDate||'all')===df.key ? 'chip chip-active' : 'chip'}>{df.label}</a>
-          ))}
+      <div className="orders-filters">
+        <div className="orders-dates">
+          {DATE_FILTERS.map(df => {
+            const on = (currentDate || 'all') === df.key;
+            return (
+              <a key={df.key} href={buildUrl({ date: df.key, page: '1' })} className={on ? 'is-on' : ''}>
+                {on ? <Icon><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M8 3v4M16 3v4M4 10h16" /></Icon> : null}
+                {df.label}
+              </a>
+            );
+          })}
         </div>
 
-        <select defaultValue={currentAccount||'all'}
-          onChange={e => window.location.href = buildUrl({ account: e.target.value })}
-          style={{ padding:'5px 10px', borderRadius:'6px', fontSize:'12px', border:'1px solid #E2E8F0', background:'#fff' }}>
-          <option value="all">All Accounts</option>
-          {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-        </select>
+        <label className="orders-account">
+          <Icon><path d="M12 3 4 7l8 4 8-4-8-4Z" /><path d="m4 12 8 4 8-4" /><path d="m4 17 8 4 8-4" /></Icon>
+          <select defaultValue={currentAccount || 'all'} aria-label="Account"
+            onChange={e => { window.location.href = buildUrl({ account: e.target.value, page: '1' }); }}>
+            <option value="all">All Accounts</option>
+            {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </label>
 
-        <form method="get" action="/orders" style={{ display:'flex', gap:'4px', marginLeft:'auto' }}>
-          <input type="hidden" name="status" value={currentStatus||'ALL'} />
-          <input type="hidden" name="date" value={currentDate||'all'} />
-          <input type="hidden" name="account" value={currentAccount||'all'} />
-          <input name="q" defaultValue={currentSearch||''} placeholder="Search posting #, SKU, title..." style={{ padding:'5px 12px', borderRadius:'6px', fontSize:'12px', width:'260px', border:'1px solid #E2E8F0' }} />
-          <button type="submit" style={{ padding:'5px 12px', fontSize:'12px' }}>Search</button>
-          {currentSearch && <a href={buildUrl({ q:'' })} style={{ padding:'5px 10px', background:'#F1F5F9', color:'#475569', borderRadius:'6px', fontSize:'12px', textDecoration:'none', display:'flex', alignItems:'center' }}>✕</a>}
+        <form method="get" action="/orders" className="orders-search" onSubmit={() => setSearching(true)}>
+          <input type="hidden" name="status" value={currentStatus || 'ALL'} />
+          <input type="hidden" name="date" value={currentDate || 'all'} />
+          <input type="hidden" name="account" value={currentAccount || 'all'} />
+          {pageSize !== 10 ? <input type="hidden" name="pageSize" value={pageSize} /> : null}
+          <span className="orders-search-field">
+            <Icon><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4" /></Icon>
+            <input name="q" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search posting #, SKU, title..." aria-label="Search orders" />
+            {query ? (
+              <button type="button" className="orders-clear" aria-label="Clear search" onClick={() => { setQuery(''); if (currentSearch) window.location.href = buildUrl({ q: '', page: '1' }); }}>×</button>
+            ) : null}
+          </span>
+          <button type="submit" className="dash-primary" disabled={searching}>
+            {searching ? null : <Icon><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4" /></Icon>}
+            {searching ? 'Searching...' : 'Search'}
+          </button>
         </form>
+        <button type="button" className="dash-outline" onClick={exportSelectedExcel} disabled={excelBusy || (selectedIds.size === 0 && exportIds.length === 0)}>
+          <Icon><path d="M12 4v10" /><path d="m8 10 4 4 4-4" /><path d="M5 19h14" /></Icon>
+          {excelBusy ? 'Building Excel...' : 'Export Excel'}
+        </button>
       </div>
 
-      {/* Bulk actions & Count */}
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px' }}>
-        <p style={{ fontSize:'12px', color:'#64748B' }}>{orders.length} order{orders.length!==1?'s':''} shown</p>
-        
-        {selectedIds.size > 0 && (
-           <div style={{ display:'flex', gap:'8px', alignItems:'center' }}>
-              <span style={{ fontSize:'12px', fontWeight:600 }}>{selectedIds.size} selected</span>
-              <button type="button" className="button-secondary" onClick={exportSelectedCsv} style={{ padding:'4px 10px', fontSize:'12px' }}>Export Excel</button>
-              <button type="button" className="button-secondary" onClick={() => alert('PDF export requires pipeline execution. Please click Run Pipeline on the dashboard.')} style={{ padding:'4px 10px', fontSize:'12px' }}>Export PDF</button>
-           </div>
-        )}
+      <div className="orders-meta">
+        <p>
+          <strong className="orders-count">{`${filteredCount.toLocaleString('en-US')} ${filteredCount === 1 ? 'order' : 'orders'}`}</strong>
+          {currentStatus && currentStatus !== 'ALL' ? <a className="orders-chip" href={buildUrl({ status: 'ALL', page: '1' })}>Status: {STATUS_LABEL[currentStatus] || currentStatus} ×</a> : null}
+          {currentDate && currentDate !== 'all' ? <a className="orders-chip" href={buildUrl({ date: 'all', page: '1' })}>Date: {DATE_FILTERS.find((item) => item.key === currentDate)?.label || currentDate} ×</a> : null}
+          {currentAccount && currentAccount !== 'all' ? <a className="orders-chip" href={buildUrl({ account: 'all', page: '1' })}>Account: {accounts.find((account) => account.id === currentAccount)?.name || 'Account'} ×</a> : null}
+          {currentSearch ? <a className="orders-chip" href={buildUrl({ q: '', page: '1' })}>Search: {currentSearch} ×</a> : null}
+          {pdfError ? <span className="orders-note is-bad" role="alert">{pdfError}</span> : null}
+          {statusNote ? <span className="orders-note is-ok" role="status">{statusNote}</span> : null}
+        </p>
+        <div className="orders-bulk">
+          <label className="orders-selected">
+            <input type="checkbox" aria-label="Select orders on this page" checked={visibleOrders.length > 0 && visibleOrders.every((order) => selectedIds.has(order.id))} onChange={toggleAll} />
+            {selectedIds.size} selected
+          </label>
+          <select defaultValue="" aria-label="Change selected orders on Ozon" disabled={statusBusy || selectedIds.size === 0} onChange={(event) => { const value = event.target.value; event.target.value = ''; openStatusChange([...selectedIds], value); }}>
+            <option value="">{statusBusy ? 'Updating...' : 'Change on Ozon'}</option>
+            {['awaiting_deliver', 'delivering', 'delivered', 'cancelled'].map((status) => (
+              <option key={status} value={status}>{TARGET_LABEL[status]}</option>
+            ))}
+          </select>
+          {selectedIds.size > 0 && (
+            <>
+              <button type="button" className="dash-outline" onClick={exportSelectedPdf} disabled={pdfBusy || Boolean(docBusy)}>{pdfBusy ? 'Building PDF...' : 'Export PDF'}</button>
+              <button type="button" className="dash-outline" onClick={() => downloadOzonDocument('shipping')} disabled={Boolean(docBusy) || !visibleOrders.some((order) => selectedIds.has(order.id) && waitingForPickup(order))}>{docBusy === 'shipping' ? 'Downloading...' : 'Ozon labels'}</button>
+              <button type="button" className="dash-outline" onClick={() => downloadOzonDocument('product')} disabled={Boolean(docBusy)}>{docBusy === 'product' ? 'Downloading...' : 'Ozon product list'}</button>
+            </>
+          )}
+          <button type="button" className="dash-outline orders-refresh" onClick={() => router.refresh()}>
+            <Icon><path d="M20 12a8 8 0 1 1-2.2-5.5" /><path d="M20 4v5h-5" /></Icon>
+            Refresh
+          </button>
+          {(currentStatus && currentStatus !== 'ALL') || (currentAccount && currentAccount !== 'all') || (currentDate && currentDate !== 'all') || currentSearch ? (
+            <a className="dash-outline orders-clear-filters" href={buildUrl({ status: 'ALL', account: 'all', date: 'all', q: '', page: '1' })}>
+              <Icon><path d="M4 5h16l-6 7v5l-4 2v-7L4 5z" /></Icon>
+              Clear Filters
+            </a>
+          ) : null}
+        </div>
       </div>
 
       {/* Table */}
-      <div className="table-wrap">
-        <table style={{ width:'100%', borderCollapse:'collapse' }}>
+      <div className="table-wrap orders-table-wrap">
+        <table className="orders-table">
           <thead>
             <tr style={{ background:'#F8FAFC' }}>
-              <th style={{ padding:'10px 12px', width:'40px' }}><input type="checkbox" checked={orders.length > 0 && selectedIds.size === orders.length} onChange={toggleAll} /></th>
-              {['Image','Title / SKU','Posting #','Account','Status & Age','Ship By','Price','Whse'].map(h => (
-                <th key={h} style={{ padding:'10px 12px', textAlign:'left', fontSize:'11px', fontWeight:700, color:'#64748B', textTransform:'uppercase', letterSpacing:'0.04em', borderBottom:'1px solid #E2E8F0', whiteSpace:'nowrap' }}>{h}</th>
+              <th className="orders-check"><input type="checkbox" aria-label="Select orders on this page" checked={visibleOrders.length > 0 && visibleOrders.every((order) => selectedIds.has(order.id))} onChange={toggleAll} /></th>
+              {['Image','Title / SKU','Posting #','Account','Status & Age','Ship By','Price','Whse','Actions'].map(h => (
+                <th key={h}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {orders.length === 0 ? (
-              <tr><td colSpan="9" className="empty-cell">No orders yet for this filter.</td></tr>
-            ) : orders.map((order, idx) => {
+            {visibleOrders.length === 0 ? (
+              <tr>
+                <td colSpan="10" className="orders-empty">
+                  <strong>No orders match these filters.</strong>
+                  <p>Try another status, account, or date.</p>
+                  {(currentStatus && currentStatus !== 'ALL') || (currentAccount && currentAccount !== 'all') || (currentDate && currentDate !== 'all') || currentSearch ? (
+                    <a className="dash-outline" href="/orders">Clear filters</a>
+                  ) : null}
+                </td>
+              </tr>
+            ) : visibleOrders.map((order) => {
               const p  = order._parsed;
               const pr = p.products?.[0] || {};
               const fp = moneyFor(p, pr);
@@ -326,17 +660,15 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
               const shipDate = new Date(p.shipment_date);
               const hoursTilShip = p.shipment_date ? Math.floor((shipDate - new Date()) / (1000 * 60 * 60)) : 999;
               
-              let currencySymbol = fp.currency_code === 'RUB' ? '₽' : fp.currency_code === 'USD' ? '$' : fp.currency_code === 'EUR' ? '€' : '';
+              const saleAmount = amountOf(fp.price ?? pr.price);
+              const saleCurrency = currencyOf(fp.price, '') || fp.currency_code || currencyOf(pr.price, '');
+              const currencySymbol = saleCurrency === 'RUB' ? '₽' : saleCurrency === 'USD' ? '$' : saleCurrency === 'EUR' ? '€' : saleCurrency === 'INR' ? '₹' : '';
+              const shipClass = hoursTilShip < 0 ? 'orders-ship is-late' : hoursTilShip < 24 ? 'orders-ship is-soon' : 'orders-ship';
 
               return (
-                <tr key={order.id} onClick={(e) => { if(e.target.type !== 'checkbox') setSelected(order); }}
-                  style={{ cursor:'pointer', borderBottom:'1px solid #F1F5F9', background: idx%2===0 ? '#fff' : '#FAFAFA', transition:'background 0.15s' }}
-                  onMouseEnter={e => e.currentTarget.style.background='#EFF6FF'}
-                  onMouseLeave={e => e.currentTarget.style.background=idx%2===0?'#fff':'#FAFAFA'}>
-
-                  {/* Checkbox */}
-                  <td style={{ padding:'10px 12px' }} onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" checked={selectedIds.has(order.id)} onChange={() => toggleOne(order.id)} />
+                <tr key={order.id} className={selectedIds.has(order.id) ? 'is-selected' : ''} onClick={(e) => { if (e.target.type !== 'checkbox' && e.target.tagName !== 'SELECT' && e.target.tagName !== 'OPTION') setSelected(order); }}>
+                  <td className="orders-check" onClick={e => e.stopPropagation()}>
+                      <input type="checkbox" aria-label={`Select ${order.posting_number}`} checked={selectedIds.has(order.id)} onChange={() => toggleOne(order.id)} />
                   </td>
 
                   {/* Image */}
@@ -348,47 +680,70 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
                   </td>
 
                   {/* Title & SKU */}
-                  <td style={{ padding:'10px 12px', maxWidth:'220px' }}>
-                    <p style={{ fontSize:'12px', color:'#1E293B', marginBottom:'3px', overflow:'hidden', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>{pr.name || '—'}</p>
-                    <p style={{ fontSize:'11px', color:'#64748B', fontFamily:'monospace' }}>{pr.offer_id || '—'}  •  Qty: {pr.quantity}</p>
+                  <td className="orders-title-cell">
+                    <p className="orders-title" title={pr.name || ''}>{pr.name || '—'}</p>
+                    <p className="orders-sku">{pr.offer_id || '—'} · Qty: {pr.quantity}</p>
                   </td>
 
                   {/* Posting # */}
-                  <td style={{ padding:'10px 12px', fontFamily:'monospace', fontSize:'11px', color:'#1E40AF', whiteSpace:'nowrap' }}>{order.posting_number}</td>
-
-                  {/* Account */}
-                  <td style={{ padding:'10px 12px' }}>
-                    <span style={{ fontSize:'11px', fontWeight:600, color:'#475569', background:'#F1F5F9', padding:'3px 8px', borderRadius:'6px' }}>{order._accountName}</span>
+                  <td className="orders-posting">
+                    <span>{order.posting_number}</span>
+                    <button type="button" className="orders-icon-btn" aria-label={`Copy ${order.posting_number}`} onClick={(event) => { event.stopPropagation(); navigator.clipboard?.writeText(order.posting_number); }}>
+                      <Icon><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M5 15V5h10" /></Icon>
+                    </button>
                   </td>
 
-                  {/* Status & Age */}
-                  <td style={{ padding:'10px 12px' }}>
-                     <StatusBadge status={order.status} /><br />
-                     <span style={{ fontSize:'10px', color:'#94A3B8', marginTop:'4px', display:'inline-block' }}>{age} Days Old</span>
+                  <td>
+                    <span className="orders-account-pill">{order._accountName}</span>
                   </td>
 
-                  {/* Ship By */}
-                  <td style={{ padding:'10px 12px', fontSize:'12px', whiteSpace:'nowrap' }}>
-                    {p.shipment_date ? (
+                  <td onClick={(event) => event.stopPropagation()}>
+                    <div className="orders-status">
                       <div>
-                         <span style={{ color: hoursTilShip < 0 ? '#DC2626' : hoursTilShip < 24 ? '#D97706' : '#059669', fontWeight:600 }}>
-                           {fmtDate(p.shipment_date)}
-                         </span>
-                         <br/>
-                         {hoursTilShip < 0 ? <span style={{fontSize:'10px', color:'#DC2626'}}>🔴 Overdue</span> : 
-                          hoursTilShip < 24 ? <span style={{fontSize:'10px', color:'#D97706'}}>⚠ Due Soon</span> : ''}
+                        <StatusBadge status={order.status} />
+                        {nextTargets(order).length > 0 && (
+                          <select defaultValue="" disabled={statusBusy} aria-label={`Change ${order.posting_number} on Ozon`} onChange={(event) => { const value = event.target.value; event.target.value = ''; openStatusChange([order.id], value); }}>
+                            <option value="">{statusBusy ? 'Updating...' : 'Change on Ozon'}</option>
+                            {nextTargets(order).map((status) => <option key={status} value={status}>{TARGET_LABEL[status]}</option>)}
+                          </select>
+                        )}
+                      </div>
+                      <span className="orders-age">{age} Days Old</span>
+                    </div>
+                  </td>
+
+                  <td>
+                    {p.shipment_date ? (
+                      <div className={shipClass}>
+                        <Icon><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M8 3v4M16 3v4M4 10h16" /></Icon>
+                        <span>
+                          {fmtDate(p.shipment_date)}
+                          {hoursTilShip < 0 ? <small>Overdue</small> : hoursTilShip < 24 ? <small>Due soon</small> : null}
+                        </span>
                       </div>
                     ) : '—'}
                   </td>
 
-                  {/* Exact Price */}
-                  <td style={{ padding:'10px 12px', fontSize:'13px', whiteSpace:'nowrap' }}>
-                    <span style={{ fontWeight:700 }}>{currencySymbol}{fp.price || pr.price || '0.00'}</span><br/>
-                    <span style={{ fontSize:'10px', color:'#94A3B8' }}>{fp.currency_code}</span>
+                  <td className="orders-price">
+                    {saleAmount == null ? '—' : (
+                      <>
+                        <strong>{currencySymbol}{saleAmount.toLocaleString('en-IN')}</strong>
+                        {saleCurrency ? <span>{saleCurrency}</span> : null}
+                      </>
+                    )}
                   </td>
 
-                  {/* Warehouse */}
-                  <td style={{ padding:'10px 12px', fontSize:'11px', color:'#475569', maxWidth:'100px' }}>{p.delivery_method?.warehouse || '—'}</td>
+                  <td className="orders-whse">{p.delivery_method?.warehouse || '—'}</td>
+                  <td className="orders-actions" onClick={(event) => event.stopPropagation()}>
+                    <button type="button" className="orders-icon-btn" aria-label={`Actions for ${order.posting_number}`} aria-expanded={menuId === order.id} onClick={() => setMenuId(menuId === order.id ? null : order.id)}>
+                      <Icon><circle cx="12" cy="6" r="1.2" fill="currentColor" /><circle cx="12" cy="12" r="1.2" fill="currentColor" /><circle cx="12" cy="18" r="1.2" fill="currentColor" /></Icon>
+                    </button>
+                    {menuId === order.id && (
+                      <div className="orders-menu" role="menu">
+                        <button type="button" role="menuitem" onClick={() => { setSelected(order); setMenuId(null); }}>Open order</button>
+                      </div>
+                    )}
+                  </td>
                 </tr>
               );
             })}
@@ -396,7 +751,50 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
         </table>
       </div>
 
+      <nav className="orders-pager" aria-label="Order pages">
+        <span>{filteredCount === 0 ? 'Showing 0 orders' : `Showing ${rangeStart.toLocaleString('en-US')}–${rangeEnd.toLocaleString('en-US')} of ${filteredCount.toLocaleString('en-US')} orders`}</span>
+        <label>
+          Rows per page
+          <select value={pageSize} aria-label="Rows per page" onChange={(event) => { window.location.href = buildUrl({ pageSize: event.target.value, page: '1' }); }}>
+            {[10, 20, 50].map((size) => <option key={size} value={size}>{size}</option>)}
+          </select>
+        </label>
+        <div>
+          <a className={currentPage <= 1 ? 'is-disabled' : ''} href={currentPage <= 1 ? undefined : buildUrl({ page: '1' })} aria-label="First page" aria-disabled={currentPage <= 1}>«</a>
+          <a className={currentPage <= 1 ? 'is-disabled' : ''} href={currentPage <= 1 ? undefined : buildUrl({ page: String(currentPage - 1) })} aria-disabled={currentPage <= 1}>Previous</a>
+          {pageNumbers.map((item) => (
+            typeof item === 'number' ? (
+              <a key={item} href={buildUrl({ page: String(item) })} className={item === currentPage ? 'is-current' : ''} aria-current={item === currentPage ? 'page' : undefined}>{item}</a>
+            ) : <span key={item}>…</span>
+          ))}
+          <a className={currentPage >= pageCount ? 'is-disabled' : ''} href={currentPage >= pageCount ? undefined : buildUrl({ page: String(currentPage + 1) })} aria-disabled={currentPage >= pageCount}>Next</a>
+          <a className={currentPage >= pageCount ? 'is-disabled' : ''} href={currentPage >= pageCount ? undefined : buildUrl({ page: String(pageCount) })} aria-label="Last page" aria-disabled={currentPage >= pageCount}>»</a>
+        </div>
+      </nav>
+
       <OrderDrawer order={selected} onClose={() => setSelected(null)} />
+      {statusChange && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(15,23,42,0.45)', zIndex:120, display:'flex', alignItems:'center', justifyContent:'center', padding:'24px' }}>
+          <div style={{ width:'min(440px, 100%)', background:'#fff', borderRadius:'12px', padding:'20px', boxShadow:'0 16px 40px rgba(0,0,0,0.18)' }}>
+            <p style={{ fontSize:'16px', fontWeight:700, marginBottom:'8px' }}>Update {statusChange.ids.length} order{statusChange.ids.length === 1 ? '' : 's'} on Ozon</p>
+            <p style={{ fontSize:'13px', color:'#475569', marginBottom:'14px' }}>The new status is {TARGET_LABEL[statusChange.target]}. Ozon receives this change for the seller account on each order.</p>
+            {statusChange.target === 'cancelled' && (
+              <div style={{ display:'flex', flexDirection:'column', gap:'8px', marginBottom:'12px' }}>
+                <select value={statusChange.reasonId} onChange={(event) => setStatusChange({ ...statusChange, reasonId: event.target.value })}>
+                  <option value="">Cancellation reason</option>
+                  {statusChange.reasons.map((reason) => <option key={reason.id} value={reason.id}>{reason.title}</option>)}
+                </select>
+                <input value={statusChange.message} onChange={(event) => setStatusChange({ ...statusChange, message: event.target.value })} placeholder="Note for Ozon, if the reason needs one" />
+              </div>
+            )}
+            {statusChange.error && <p style={{ fontSize:'12px', color:'#B91C1C', marginBottom:'12px' }}>{statusChange.error}</p>}
+            <div style={{ display:'flex', justifyContent:'flex-end', gap:'8px' }}>
+              <button type="button" className="button-secondary" onClick={() => setStatusChange(null)} disabled={statusBusy}>Cancel</button>
+              <button type="button" onClick={confirmStatusChange} disabled={statusBusy}>{statusBusy ? 'Updating Ozon...' : 'Update on Ozon'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

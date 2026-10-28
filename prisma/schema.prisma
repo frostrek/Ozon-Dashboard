@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:./dev.db"
+  url      = env("DATABASE_URL")
 }
 
 // ─── CORE PLATFORM ───────────────────────────────────────────────────────────
@@ -460,6 +460,18 @@ model AuditLog {
   error      String?
   created_at DateTime @default(now())
   account    Account  @relation(fields: [account_id], references: [id], onDelete: Cascade)
+}
+
+model CatalogSetting {
+  id                 String   @id @default("default")
+  startPage          Int      @default(1)
+  pages              Int      @default(3)
+  oldPriceMultiplier Float    @default(2)
+  productLimit       Int      @default(20)
+  applyWeightGate    Boolean  @default(true)
+  weightBands        String   @default("{\"upto100\":true,\"upto200\":true,\"upto500\":true,\"over500\":false,\"unknown\":false}")
+  scrapeRules        String   @default("{\"minRating\":4,\"inStockOnly\":true,\"skipSponsored\":false,\"skipUnrated\":false,\"makePacks\":true,\"includeShades\":true}")
+  updatedAt          DateTime @updatedAt
 }
 
 model ErrorLog {

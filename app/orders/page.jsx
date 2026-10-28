@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { dbStatusFor } from '../../lib/orders/statusMap';
 import OrdersClient from './OrdersClient';
 
 export const dynamic = 'force-dynamic';
@@ -8,6 +9,8 @@ export default async function OrdersPage({ searchParams }) {
   const accountFilter = searchParams?.account || 'all';
   const dateFilter    = searchParams?.date    || 'all';
   const searchFilter  = searchParams?.q       || '';
+  const pageSize = [10, 20, 50].includes(Number(searchParams?.pageSize)) ? Number(searchParams.pageSize) : 10;
+  const requestedPage = Math.max(1, Number(searchParams?.page) || 1);
 
   // Calculate status counts respecting the account filter
   const STATUS_TABS = ['ALL', 'AWAITING_PACKAGING', 'AWAITING_DELIVERY', 'IN_TRANSIT', 'DELIVERED', 'CANCELLED'];
@@ -44,16 +47,28 @@ export default async function OrdersPage({ searchParams }) {
       ];
   }
 
-  // Fetch orders
-  const dbOrders = await prisma.order.findMany({
-    where,
-    take: 250,
-    include: {
-      account: true,
-      statusHistory: { orderBy: { changed_at: 'asc' } }
-    },
-    orderBy: { updated_at: 'desc' }
-  });
+  const filteredCount = await prisma.order.count({ where });
+  const pageCount = Math.max(1, Math.ceil(filteredCount / pageSize));
+  const currentPage = Math.min(requestedPage, pageCount);
+
+  const [dbOrders, exportRows] = await Promise.all([
+    prisma.order.findMany({
+      where,
+      skip: (currentPage - 1) * pageSize,
+      take: pageSize,
+      include: {
+        account: true,
+        statusHistory: { orderBy: { changed_at: 'asc' } }
+      },
+      orderBy: { updated_at: 'desc' }
+    }),
+    prisma.order.findMany({
+      where,
+      take: 250,
+      select: { id: true },
+      orderBy: { updated_at: 'desc' }
+    }),
+  ]);
 
   const accounts = await prisma.account.findMany({
     select: { id: true, name: true },
@@ -68,7 +83,7 @@ export default async function OrdersPage({ searchParams }) {
           id: o.id,
           account_id: o.account_id,
           posting_number: o.posting_number,
-          status: o.status,
+          status: dbStatusFor(parsed.status, o.status),
           created_at: o.created_at,
           customer_name: o.customer_name,
           _accountName: o.account.name,
@@ -86,6 +101,11 @@ export default async function OrdersPage({ searchParams }) {
        currentAccount={accountFilter}
        currentDate={dateFilter}
        currentSearch={searchFilter}
+       filteredCount={filteredCount}
+       currentPage={currentPage}
+       pageCount={pageCount}
+       pageSize={pageSize}
+       exportIds={exportRows.map((row) => row.id)}
     />
   );
 }

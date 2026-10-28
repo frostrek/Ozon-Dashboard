@@ -11,12 +11,16 @@ export async function POST(req) {
   try {
     let accountId;
     let runAll = false;
+    let dateFrom = '';
+    let dateTo = '';
 
     const contentType = req.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
       const body = await req.json();
       accountId = body.accountId;
       runAll = Boolean(body.all);
+      dateFrom = body.dateFrom;
+      dateTo = body.dateTo;
     } else {
       const formData = await req.formData();
       accountId = formData.get('accountId');
@@ -47,7 +51,16 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Missing account info' }, { status: 400 });
     }
 
-    const started = await startPipelineRun(String(accountId));
+    const dates = {};
+    if (dateFrom || dateTo) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateFrom)) || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateTo)) || dateFrom > dateTo) {
+        return NextResponse.json({ error: 'Choose a from date and an end date. The from date must be on or before the end date.' }, { status: 400 });
+      }
+      dates.dateFrom = String(dateFrom);
+      dates.dateTo = String(dateTo);
+    }
+
+    const started = await startPipelineRun(String(accountId), dates);
     return NextResponse.json({ runId: started.runId, pid: started.pid });
   } catch (error) {
     const status = error.status || 500;

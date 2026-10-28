@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useState, useEffect } from 'react';
 
 function NavIcon({ children }) {
   return (
@@ -64,6 +65,17 @@ const MAIN_LINKS = [
         <path d="M21 8l-9-5-9 5 9 5 9-5z" />
         <path d="M3 8v8l9 5 9-5V8" />
         <path d="M12 13v8" />
+      </NavIcon>
+    ),
+  },
+  {
+    href: '/catalog',
+    label: 'Catalog',
+    icon: (
+      <NavIcon>
+        <path d="M4 5h16v4H4z" />
+        <path d="M4 10h16v4H4z" />
+        <path d="M4 15h16v4H4z" />
       </NavIcon>
     ),
   },
@@ -141,12 +153,13 @@ function linkActive(pathname, href, exact = false) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function NavItem({ item, active }) {
+function NavItem({ item, active, onClick }) {
   return (
     <Link
       href={item.href}
       className={item.className ? `nav-link nav-link-ai ${item.className}` : 'nav-link'}
       data-active={active ? 'true' : 'false'}
+      onClick={onClick}
     >
       {item.icon}
       <span>{item.label}</span>
@@ -156,18 +169,81 @@ function NavItem({ item, active }) {
 
 export default function SidebarNav() {
   const pathname = usePathname();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-  return (
-    <nav className="side-nav" aria-label="Main">
+  // Close mobile menu on route change
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
+  // Prevent body scroll when mobile menu is open
+  useEffect(() => {
+    document.body.classList.toggle('sidebar-open', mobileOpen);
+    return () => document.body.classList.remove('sidebar-open');
+  }, [mobileOpen]);
+
+  const navContent = (
+    <>
       {MAIN_LINKS.map((item) => (
-        <NavItem key={item.href} item={item} active={linkActive(pathname, item.href, item.exact)} />
+        <NavItem
+          key={item.href}
+          item={item}
+          active={linkActive(pathname, item.href, item.exact)}
+          onClick={() => setMobileOpen(false)}
+        />
       ))}
 
       <div className="sidebar-section-label">AI ENGINE</div>
 
       {AI_LINKS.map((item) => (
-        <NavItem key={item.href} item={item} active={linkActive(pathname, item.href)} />
+        <NavItem
+          key={item.href}
+          item={item}
+          active={linkActive(pathname, item.href)}
+          onClick={() => setMobileOpen(false)}
+        />
       ))}
-    </nav>
+    </>
+  );
+
+  return (
+    <>
+      {/* Mobile hamburger trigger (rendered inside sidebar header area) */}
+      <button
+        type="button"
+        className="sidebar-mobile-toggle"
+        aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+        aria-expanded={mobileOpen}
+        onClick={() => setMobileOpen((v) => !v)}
+      >
+        <span />
+        <span />
+        <span />
+      </button>
+
+      {/* Mobile backdrop */}
+      {mobileOpen && (
+        <button
+          type="button"
+          className="sidebar-backdrop"
+          aria-label="Close menu"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      {/* Desktop nav (always visible) */}
+      <nav className="side-nav side-nav-desktop" aria-label="Main">
+        {navContent}
+      </nav>
+
+      {/* Mobile drawer */}
+      <nav
+        className={`side-nav side-nav-mobile${mobileOpen ? ' is-open' : ''}`}
+        aria-label="Main navigation"
+        aria-hidden={!mobileOpen}
+      >
+        {navContent}
+      </nav>
+    </>
   );
 }

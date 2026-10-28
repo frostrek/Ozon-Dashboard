@@ -1,0 +1,30 @@
+{
+  "_comment": "l98 pipeline config — credentials stay in .env, everything else lives here. This file will be superseded by the dashboard UI once Gate 3 is cleared.",
+  "scraper": {
+    "keyword": "Maybelline Instant Age Rewind Concealer",
+    "min_rating": 4.1,
+    "concurrency": 2,
+    "delay_ms": 500,
+    "max_variants_per_product": 5,
+    "_comment": "max_variants_per_product: how many shades to scrape per parent product. Set to 0 for unlimited."
+  },
+  "push": {
+    "target_asin": "B0046VDP8C",
+    "ozon_category": {
+      "description_category_id": 17028991,
+      "type_id": 629618165,
+      "type_label": "Sunscreen",
+      "_comment": "Cosmetics fallback to avoid Ozon 400 error during testing"
+    },
+    "pricing": {
+      "old_price_multiplier": 2.0,
+      "_comment": "old_price = final_usd × multiplier. Must be >= price. Default 2× = 50% off appearance on Ozon."
+    },
+    "weight_gate_grams": 500,
+    "dimensions_mm": {
+      "depth": 47,
+      "width": 47,
+      "height": 150
+    }
+  }
+}

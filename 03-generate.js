@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
-import { mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "path";
 import puppeteer from "puppeteer";
 import Handlebars from "handlebars";
@@ -139,23 +140,7 @@ export async function generatePdfs(runDir, logger) {
 
   logger.info("🚀 Launching browser...");
 
-  // ✅ SMART CHROME LAUNCH (AUTO + FALLBACK)
-  let browser;
-
-  try {
-    // Try system Chrome
-    browser = await puppeteer.launch({
-      headless: true,
-      executablePath: "C:\Program Files\Google\Chrome\Application\chrome.exe",
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    });
-  } catch (err) {
-    logger.warn("⚠️ System Chrome not found, using Puppeteer default...");
-    browser = await puppeteer.launch({
-      headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    });
-  }
+  const browser = await launchChrome();
 
   const ok = [];
 
@@ -196,4 +181,114 @@ export async function generatePdfs(runDir, logger) {
   }
 
   logger.info(`⚡ Done — ${ok.length}/${dataArray.length} PDFs generated.`);
+}
+
+function systemChromePath() {
+  const candidates = [
+    process.env.CHROME_PATH,
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    path.join(process.env.LOCALAPPDATA || "", "Google", "Chrome", "Application", "chrome.exe"),
+    path.join(process.env.PROGRAMFILES || "", "Google", "Chrome", "Application", "chrome.exe"),
+  ].filter(Boolean);
+  return candidates.find((file) => existsSync(file)) || "";
+}
+
+function launchChrome() {
+  if (String(process.env.PUPPETEER_CACHE_DIR || "").includes("cursor-sandbox-cache")) {
+    delete process.env.PUPPETEER_CACHE_DIR;
+  }
+  const executablePath = systemChromePath();
+  if (!executablePath) {
+    throw new Error("Google Chrome was not found. Install Chrome, then run this again.");
+  }
+  process.env.PUPPETEER_EXECUTABLE_PATH = executablePath;
+  return puppeteer.launch({
+    headless: true,
+    executablePath,
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+  });
+}
+
+function registerPdfHelpers() {
+  Handlebars.registerHelper("formatDate", (isoString) => {
+    if (!isoString) return "-";
+    const d = new Date(isoString);
+    if (isNaN(d)) return "-";
+    const dd = String(d.getUTCDate()).padStart(2, "0");
+    const mo = d.toLocaleString("en-GB", { month: "short", timeZone: "UTC" });
+    const yyyy = d.getUTCFullYear();
+    return `${dd} ${mo} ${yyyy}`;
+  });
+  Handlebars.registerHelper("formatWeight", (weight, unit) => {
+    if (weight == null) return "-";
+    const kg = unit === "g" ? weight / 1000 : weight;
+    return kg.toFixed(3) + " kg";
+  });
+  Handlebars.registerHelper("findById", (arr, id) => (
+    Array.isArray(arr) ? arr.find((item) => item.product_id === id) : undefined
+  ));
+  Handlebars.registerHelper("totalWeight", (products) => {
+    if (!Array.isArray(products)) return "-";
+    const kg = products.reduce((sum, product) => {
+      const weight = product.dimensions?.weight || 0;
+      const unit = product.dimensions?.weight_unit;
+      return sum + (unit === "g" ? weight / 1000 : weight);
+    }, 0);
+    return kg.toFixed(3) + " kg";
+  });
+  Handlebars.registerHelper("eq", (a, b) => a === b);
+  Handlebars.registerHelper("gt", (a, b) => a > b);
+}
+
+export async function renderOrdersToPdf(orders) {
+  const list = Array.isArray(orders) ? orders.filter((order) => order?.posting_number) : [];
+  if (!list.length) throw new Error("Select at least one order.");
+
+  registerPdfHelpers();
+  const template = Handlebars.compile(await readFile(path.join(process.cwd(), "template.html"), "utf8"));
+  const browser = await launchChrome();
+  const merged = await PDFDocument.create();
+  const concurrency = 3;
+
+  try {
+    for (let index = 0; index < list.length; index += concurrency) {
+      const batch = list.slice(index, index + concurrency);
+      const pages = await Promise.all(batch.map(async (order) => {
+        const copy = structuredClone(order);
+        if (copy.financial_data?.products && copy.products) {
+          const bySku = {};
+          for (const row of copy.financial_data.products) bySku[row.product_id] = row;
+          copy.financial_data.products = copy.products
+            .map((product) => {
+              const row = bySku[product.sku];
+              return row ? { ...row, product_id: product.product_id } : null;
+            })
+            .filter(Boolean);
+        }
+        const page = await browser.newPage();
+        try {
+          page.setDefaultTimeout(30000);
+          await page.setContent(template(copy), { waitUntil: "load" });
+          return await page.pdf({
+            format: "A4",
+            printBackground: true,
+            margin: { top: "10mm", bottom: "10mm", left: "10mm", right: "10mm" },
+          });
+        } finally {
+          await page.close();
+        }
+      }));
+      for (const bytes of pages) {
+        const doc = await PDFDocument.load(bytes);
+        const copied = await merged.copyPages(doc, doc.getPageIndices());
+        copied.forEach((page) => merged.addPage(page));
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+
+  return Buffer.from(await merged.save());
 }

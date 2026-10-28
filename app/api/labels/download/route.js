@@ -5,7 +5,7 @@ import path from 'path';
 export const dynamic = 'force-dynamic';
 
 const OUTPUT_DIR = path.join(process.cwd(), 'labels-output');
-const FILE_NAME = /^thermal_labels_\d+\.pdf$/;
+const FILE_NAME = /^thermal(?:-labels-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}|_labels_\d+)\.pdf$/;
 
 export async function GET(req) {
   const filename = new URL(req.url).searchParams.get('f') || '';

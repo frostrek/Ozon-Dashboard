@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { mkdir, unlink, writeFile } from 'fs/promises';
+import { mkdir, readdir, unlink, writeFile } from 'fs/promises';
 import path from 'path';
 import { generateThermalLabels } from '../../../../lib/labels/generateThermalLabels';
 import { applyTranslationProvider } from '../../../../lib/settings/appSettings';
@@ -9,6 +9,12 @@ export const runtime = 'nodejs';
 
 const OUTPUT_DIR = path.join(process.cwd(), 'labels-output');
 const TMP_DIR = path.join(process.cwd(), 'tmp', 'labels');
+const OLD_PDF = /^thermal(?:-labels-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}|_labels_\d+)\.pdf$/;
+
+function labelFilename(date = new Date()) {
+  const pad = (value) => String(value).padStart(2, '0');
+  return `thermal-labels-${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}.pdf`;
+}
 
 function isPdf(file) {
   if (!file || typeof file === 'string') return false;
@@ -43,7 +49,7 @@ export async function POST(req) {
     const stamp = Date.now();
     labelPath = path.join(TMP_DIR, `label_${stamp}.pdf`);
     productPath = path.join(TMP_DIR, `product_${stamp}.pdf`);
-    const filename = `thermal_labels_${stamp}.pdf`;
+    const filename = labelFilename();
     const outputPath = path.join(OUTPUT_DIR, filename);
 
     await writeFile(labelPath, Buffer.from(await shippingLabel.arrayBuffer()));
@@ -60,6 +66,12 @@ export async function POST(req) {
     } finally {
       restoreTranslation();
     }
+
+    const older = await readdir(OUTPUT_DIR).catch(() => []);
+    await Promise.all(older.map(async (name) => {
+      if (name === filename || !OLD_PDF.test(name)) return;
+      await unlink(path.join(OUTPUT_DIR, name)).catch(() => {});
+    }));
 
     await writeFile(path.join(OUTPUT_DIR, 'latest.json'), JSON.stringify({
       filename,

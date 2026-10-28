@@ -10,7 +10,6 @@ import { generatePdfs } from "./03-generate.js";
 import { exportToExcel } from "./04-excel.js";
 import { notifySuccess, notifyFailure, notifyNoOrders } from "./05-notify.js";
 import { getAppSetting } from "./lib/settings/appSettings.js";
-import { ozonPost } from "./ozon-http.js";
 
 const prisma = new PrismaClient();
 const accountId = process.argv[2];
@@ -25,41 +24,22 @@ const ORDER_PICTURE_STATUSES = [
     { status: 'cancelled', label: 'Cancelled', detail: 'Cancelled in this 30-day window.' },
 ];
 
-async function countPostings(clientId, apiKey, status, since, to) {
-    let total = 0;
-    let offset = 0;
-
-    for (let page = 0; page < 20; page++) {
-        const res = await ozonPost('https://api-seller.ozon.ru/v3/posting/fbs/list', {
-            dir: 'desc',
-            filter: {
-                since: since.toISOString().replace(/\.\d{3}Z$/, 'Z'),
-                to: to.toISOString().replace(/\.\d{3}Z$/, 'Z'),
-                status,
-            },
-            limit: 1000,
-            offset,
-        }, {
-            'Client-Id': clientId,
-            'Api-Key': apiKey,
-        });
-
-        if (!res.ok) {
-            const errorText = (await res.text()).slice(0, 180);
-            throw new Error(`Ozon returned ${res.status} while checking "${status}": ${errorText}`);
+function orderWindow() {
+    const from = String(process.env.PIPELINE_DATE_FROM || '').trim();
+    const to = String(process.env.PIPELINE_DATE_TO || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(from) && /^\d{4}-\d{2}-\d{2}$/.test(to)) {
+        const since = new Date(`${from}T00:00:00.000Z`);
+        const end = new Date(`${to}T23:59:59.000Z`);
+        if (!Number.isNaN(since.getTime()) && !Number.isNaN(end.getTime()) && since <= end) {
+            return { since, to: end, label: `${from} to ${to}` };
         }
-
-        const data = (await res.json()).result ?? {};
-        const batch = data.postings ?? [];
-        total += batch.length;
-        if (!data.has_next || batch.length === 0) break;
-        offset += batch.length;
     }
-
-    return total;
+    const end = new Date();
+    const since = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+    return { since, to: end, label: 'the last 30 days' };
 }
 
-function describeOrderPicture(accountName, rows) {
+function describeOrderPicture(accountName, rows, windowLabel = 'the last 30 days') {
     const ready = rows.find((row) => row.status === 'awaiting_packaging');
     const others = rows.filter((row) => row.status !== 'awaiting_packaging' && typeof row.count === 'number' && row.count > 0);
     const also = others.length
@@ -67,40 +47,25 @@ function describeOrderPicture(accountName, rows) {
         : 'The other statuses in that window are empty too.';
 
     if (!ready || ready.count === 0) {
-        return `${accountName} has nothing ready to pack in the last 30 days. This run only creates labels for orders that are ready to pack, so it will finish without a PDF or Excel file. ${also}`;
+        return `${accountName} has nothing ready to pack in ${windowLabel}. This run only creates labels for orders that are ready to pack, so it will finish without a PDF or Excel file. ${also}`;
     }
 
     const noun = ready.count === 1 ? 'order' : 'orders';
     return `${accountName} has ${ready.count} ${noun} ready to pack. This run will process those. ${also}`;
 }
 
-async function buildOrderPicture(account, readyCount) {
-    const to = new Date();
-    const since = new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
+async function buildOrderPicture(account, readyCount, statusCounts = {}) {
+    const range = orderWindow();
     const rows = [];
-    let skipped = false;
 
     for (const item of ORDER_PICTURE_STATUSES) {
-        if (item.status === 'awaiting_packaging') {
-            rows.push({ ...item, count: readyCount });
-            continue;
-        }
-        if (skipped) {
-            rows.push({ ...item, count: '—', detail: 'Not checked. Ozon is limiting requests.' });
-            continue;
-        }
-        try {
-            const count = await countPostings(account.client_id, account.api_key, item.status, since, to);
-            rows.push({ ...item, count });
-        } catch (error) {
-            if (!error.ozonExhausted && !String(error.message).includes('limiting')) throw error;
-            skipped = true;
-            rows.push({ ...item, count: '—', detail: 'Not checked. Ozon is limiting requests.' });
-        }
+        const count = item.status === 'awaiting_packaging'
+            ? readyCount
+            : (statusCounts[item.status] || 0);
+        rows.push({ ...item, count });
     }
 
-    const summary = describeOrderPicture(account.name, rows)
-        + (skipped ? ' Some statuses were left unchecked so this run would not keep hitting the limit.' : '');
+    const summary = describeOrderPicture(account.name, rows, range.label);
 
     return {
         account: account.name,
@@ -125,30 +90,11 @@ const OZON_STATUS_MAP = {
 console.log(`[pipeline-runner] Starting with accountId: ${accountId}`);
 
 // ------------------------------------------------------------
-// Helper: call Ozon API to get the current status of ONE order
-// ------------------------------------------------------------
-async function fetchOzonPostingStatus(postingNumber, clientId, apiKey) {
-    try {
-        const res = await ozonPost(
-            'https://api-seller.ozon.ru/v3/posting/fbs/get',
-            { posting_number: postingNumber, with: {} },
-            { 'Client-Id': clientId, 'Api-Key': apiKey },
-            15_000,
-        );
-        if (!res.ok) return null;
-        const data = await res.json();
-        return data?.result?.status ?? null;
-    } catch {
-        return null;
-    }
-}
-
-// ------------------------------------------------------------
 // Helper: upsert status + record history if it changed
 // ------------------------------------------------------------
 async function updateOrderStatus(order, newOzonStatus) {
     const newStatus = OZON_STATUS_MAP[newOzonStatus] || newOzonStatus.toUpperCase();
-    if (order.status === newStatus) return; // no change
+    if (order.status === newStatus) return false;
 
     console.log(`[status-sync] ${order.posting_number}: ${order.status} → ${newStatus}`);
 
@@ -164,6 +110,7 @@ async function updateOrderStatus(order, newOzonStatus) {
             changed_at: new Date(),
         },
     });
+    return true;
 }
 
 // ------------------------------------------------------------
@@ -282,14 +229,14 @@ async function run() {
     try {
         await note('fetch', `Fetching orders that are ready to pack for ${account.name}...`);
         console.log(`[pipeline-runner] STAGE 1: Fetching AWAITING_PACKAGING orders...`);
-        const { count } = await fetchOrders(runDir, logger);
+        const { count, statusCounts, statusByNumber } = await fetchOrders(runDir, logger);
         console.log(`[pipeline-runner] STAGE 1 complete: ${count} orders fetched`);
 
-        await note('snapshot', `Checking the other statuses for ${account.name}...`);
+        await note('snapshot', `Counting the other statuses from the orders already read for ${account.name}...`);
         try {
-            const picture = await buildOrderPicture(account, count);
+            const picture = await buildOrderPicture(account, count, statusCounts || {});
             await note('snapshot', `ORDER_PICTURE ${JSON.stringify(picture)}`);
-            await note('snapshot', `Last 30 days for ${account.name}:`);
+            await note('snapshot', `${orderWindow().label} for ${account.name}:`);
             for (const row of picture.rows) {
                 await note('snapshot', `${row.label}: ${row.count}`);
             }
@@ -308,9 +255,8 @@ async function run() {
             await finish(0);
         }
 
-        await note('sync', 'Syncing open order statuses...');
+        await note('sync', 'Updating open orders from the list already read...');
 
-        // ── STAGE 0 : Status sync for existing "open" orders ──────────────
         console.log(`[pipeline-runner] STAGE 0: Syncing status of existing open orders...`);
         const openOrders = await prisma.order.findMany({
             where: {
@@ -319,14 +265,24 @@ async function run() {
             }
         });
         console.log(`[pipeline-runner] STAGE 0: ${openOrders.length} open orders to check`);
-
-        for (const order of openOrders) {
-            const ozonStatus = await fetchOzonPostingStatus(
-                order.posting_number, account.client_id, account.api_key
-            );
-            if (ozonStatus) {
-                await updateOrderStatus(order, ozonStatus);
+        if (openOrders.length) {
+            const known = statusByNumber || {};
+            let changed = 0;
+            let seen = 0;
+            let outside = 0;
+            for (const order of openOrders) {
+                const ozonStatus = known[order.posting_number];
+                if (!ozonStatus) {
+                    outside += 1;
+                    continue;
+                }
+                seen += 1;
+                if (await updateOrderStatus(order, ozonStatus)) changed += 1;
             }
+            const outsideNote = outside
+                ? ` ${outside} open orders are outside this date range and were left as they are.`
+                : '';
+            await note('sync', `Status sync finished. ${seen} of ${openOrders.length} open orders were in this date range. ${changed} changed.${outsideNote}`);
         }
         console.log(`[pipeline-runner] STAGE 0 complete: status sync done`);
         await note('products', 'Syncing products...');
@@ -350,7 +306,7 @@ async function run() {
             const existing = await prisma.order.findUnique({
                 where: { account_id_posting_number: { account_id: account.id, posting_number: order.posting_number } }
             });
-            const newStatus = 'AWAITING_PACKAGING';
+            const newStatus = OZON_STATUS_MAP[order.status] || 'AWAITING_PACKAGING';
 
             const pr = order.products?.[0] || {};
             const fp = order.financial_data?.products?.find(x => x.product_id == pr.offer_id || x.product_id == pr.product_id) || order.financial_data?.products?.[0] || {};

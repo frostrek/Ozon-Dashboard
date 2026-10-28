@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import DocumentPicker from './DocumentPicker';
+import ToastStack, { useToasts } from '../ToastStack';
 
 function isPdf(file) {
   if (!file) return false;
@@ -13,6 +15,15 @@ function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function savePdf(url, filename) {
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename || 'thermal-labels.pdf';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 }
 
 function formatWhen(value) {
@@ -58,20 +69,24 @@ function Icon({ name }) {
   );
 }
 
-function DropPanel({ id, title, help, file, onFile, onReject }) {
+function DropPanel({ id, title, help, file, busy, onFile, onReject }) {
+  const inputRef = useRef(null);
   const [over, setOver] = useState(false);
+  const [error, setError] = useState('');
 
   function accept(next) {
-    if (!next) return;
+    if (!next || busy) return;
     if (!isPdf(next)) {
+      setError('This file is not a PDF. Choose another file.');
       onReject();
       return;
     }
+    setError('');
     onFile(next);
   }
 
   return (
-    <div className="label-panel">
+    <div className={`label-panel${error ? ' is-bad' : ''}${file ? ' is-ready' : ''}`}>
       <div className="label-panel-head">
         <span className="label-mark"><Icon name="file" /></span>
         <div>
@@ -79,12 +94,11 @@ function DropPanel({ id, title, help, file, onFile, onReject }) {
           <p>{help}</p>
         </div>
       </div>
-      <label
-        className={`label-drop${over ? ' is-over' : ''}`}
-        htmlFor={id}
+      <div
+        className={`label-drop${over ? ' is-over' : ''}${file ? ' has-file' : ''}${busy ? ' is-busy' : ''}`}
         onDragOver={(event) => {
           event.preventDefault();
-          setOver(true);
+          if (!busy) setOver(true);
         }}
         onDragLeave={() => setOver(false)}
         onDrop={(event) => {
@@ -93,22 +107,58 @@ function DropPanel({ id, title, help, file, onFile, onReject }) {
           accept(event.dataTransfer.files?.[0] || null);
         }}
       >
-        <span className="label-cloud"><Icon name="upload" /></span>
-        <span>{file ? 'Replace file or drag and drop' : 'Choose file or drag and drop'}</span>
+        {file ? (
+          <div className="label-file">
+            <span className="label-mark"><Icon name="file" /></span>
+            <div>
+              <strong title={file.name}>{file.name}</strong>
+              <p>
+                {formatSize(file.size) || 'Size unavailable'}
+                <span aria-hidden="true"> · </span>
+                Ready
+              </p>
+            </div>
+            <span className="label-ok" aria-label="PDF accepted"><Icon name="check" /></span>
+            <button type="button" className="dash-outline" disabled={busy} onClick={() => inputRef.current?.click()}>
+              Replace
+            </button>
+          </div>
+        ) : (
+          <>
+            <span className="label-cloud"><Icon name="upload" /></span>
+            <span>{over ? 'Drop the PDF here.' : 'Drag and drop your PDF here.'}</span>
+            <label htmlFor={id} className="dash-outline label-browse">Browse file</label>
+          </>
+        )}
         <input
+          ref={inputRef}
           id={id}
           type="file"
           accept="application/pdf,.pdf"
+          disabled={busy}
           onChange={(event) => {
             accept(event.target.files?.[0] || null);
             event.target.value = '';
           }}
         />
-      </label>
-      <p className="label-chosen" title={file ? file.name : ''}>
-        {file ? `${file.name}${formatSize(file.size) ? ` · ${formatSize(file.size)}` : ''}` : 'No file chosen'}
-      </p>
+      </div>
+      {error ? <p className="label-field-error" role="alert">{error}</p> : null}
     </div>
+  );
+}
+
+function StudioMark() {
+  return (
+    <svg className="label-studio-art" viewBox="0 0 220 140" aria-hidden="true">
+      <rect x="18" y="28" width="128" height="84" rx="10" fill="#FFFFFF" stroke="#DBE7FF" />
+      <rect x="30" y="42" width="72" height="8" rx="3" fill="#2563EB" />
+      <rect x="30" y="58" width="104" height="5" rx="2" fill="#E2E8F0" />
+      <rect x="30" y="70" width="88" height="5" rx="2" fill="#E2E8F0" />
+      <rect x="30" y="86" width="64" height="14" rx="2" fill="#172033" />
+      <path d="M148 46h46a8 8 0 0 1 8 8v52a8 8 0 0 1-8 8h-46" fill="#EFF6FF" stroke="#BFDBFE" />
+      <rect x="162" y="62" width="28" height="18" rx="3" fill="#FFFFFF" stroke="#93C5FD" />
+      <path d="M168 90h18M168 96h12" stroke="#2563EB" strokeWidth="2" strokeLinecap="round" />
+    </svg>
   );
 }
 
@@ -116,11 +166,9 @@ export default function LabelsClient() {
   const [shippingLabel, setShippingLabel] = useState(null);
   const [productList, setProductList] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [result, setResult] = useState(null);
   const [latestState, setLatestState] = useState('loading');
-  const [latestError, setLatestError] = useState('');
+  const { toasts, push, dismiss } = useToasts();
 
   useEffect(() => {
     let cancelled = false;
@@ -142,7 +190,7 @@ export default function LabelsClient() {
       .catch((err) => {
         if (cancelled) return;
         setLatestState('error');
-        setLatestError(err.message);
+        push(err.message, 'error');
       });
     return () => {
       cancelled = true;
@@ -151,32 +199,24 @@ export default function LabelsClient() {
 
   function chooseShipping(file) {
     setShippingLabel(file);
-    setError('');
-    setNotice('');
   }
 
   function chooseProduct(file) {
     setProductList(file);
-    setError('');
-    setNotice('');
   }
 
   async function generate(event) {
     event.preventDefault();
     if (busy) return;
     if (!shippingLabel || !productList) {
-      setError('Choose both PDF files.');
-      setNotice('');
+      push('Choose both PDF files.', 'error');
       return;
     }
     if (!isPdf(shippingLabel) || !isPdf(productList)) {
-      setError('Both files must be PDFs.');
-      setNotice('');
+      push('Both files must be PDFs.', 'error');
       return;
     }
     setBusy(true);
-    setError('');
-    setNotice('');
     try {
       const body = new FormData();
       body.append('shippingLabel', shippingLabel);
@@ -187,12 +227,16 @@ export default function LabelsClient() {
       setResult(data);
       setLatestState('ready');
       const count = typeof data.labelCount === 'number' ? data.labelCount : null;
-      setNotice(count == null ? 'Labels generated.' : `Labels generated. ${count} ${count === 1 ? 'label' : 'labels'}.`);
+      const filename = data.filename || 'thermal-labels.pdf';
+      push(count == null
+        ? `Labels saved as ${filename}. The PDF is downloading.`
+        : `${count} ${count === 1 ? 'label' : 'labels'} saved as ${filename}. The PDF is downloading.`);
+      if (data.downloadUrl) savePdf(data.downloadUrl, filename);
       const latestRes = await fetch('/api/labels/latest', { cache: 'no-store' });
       const latestData = await latestRes.json().catch(() => ({}));
       if (latestRes.ok && latestData.latest) setResult(latestData.latest);
     } catch (err) {
-      setError(err.message);
+      push(err.message, 'error');
     } finally {
       setBusy(false);
     }
@@ -203,11 +247,19 @@ export default function LabelsClient() {
 
   return (
     <div className="label-page">
-      <header className="page-head">
-        <p className="label-kicker">Labels</p>
-        <h1>Label Generator</h1>
-        <p className="page-lead">Upload the Ozon shipping-label PDF and the product-list PDF. The result is a 4×6 thermal PDF.</p>
+      <header className="label-hero">
+        <div>
+          <p className="label-kicker">Labels</p>
+          <h1>Label Generator</h1>
+          <p>Find eligible orders, download shipping documents, and generate thermal labels.</p>
+        </div>
+        <div className="label-studio" aria-hidden="true">
+          <StudioMark />
+        </div>
       </header>
+
+      <DocumentPicker onMessage={push} />
+      <ToastStack toasts={toasts} onDismiss={dismiss} />
 
       <div className="label-layout">
         <form onSubmit={generate} className="stat-card label-form">
@@ -217,34 +269,35 @@ export default function LabelsClient() {
               title="Shipping label PDF"
               help="The Ozon label file with shipment barcodes."
               file={shippingLabel}
+              busy={busy}
               onFile={chooseShipping}
-              onReject={() => setError('Shipping label must be a PDF.')}
+              onReject={() => push('Shipping label must be a PDF.', 'error')}
             />
             <DropPanel
               id="product-list"
               title="Product list PDF"
               help="The product list used to match titles."
               file={productList}
+              busy={busy}
               onFile={chooseProduct}
-              onReject={() => setError('Product list must be a PDF.')}
+              onReject={() => push('Product list must be a PDF.', 'error')}
             />
           </div>
           <div className="label-actions">
-            <button type="submit" className="dash-primary label-generate" disabled={busy}>
-              {busy ? 'Generating...' : 'Generate'}
+            <button type="submit" className="dash-primary label-generate" disabled={busy || !shippingLabel || !productList}>
+              <Icon name="file" />
+              {busy ? 'Generating...' : 'Generate Thermal Labels'}
             </button>
             <p>Make sure both files are PDFs and belong to the same shipment.</p>
           </div>
-          {error && <p className="notice notice-error" role="alert">{error}</p>}
-          {notice && <p className="notice notice-ok" role="status">{notice}</p>}
         </form>
 
         <aside className="stat-card label-guide" aria-label="How label generation works">
           <h2>How it works</h2>
           <ol>
-            <li><span className="label-check"><Icon name="check" /></span>Upload the shipping-label PDF.</li>
-            <li><span className="label-check"><Icon name="check" /></span>Upload the product-list PDF.</li>
-            <li><span className="label-check"><Icon name="check" /></span>Generate the 4×6 thermal-label PDF.</li>
+            <li><span>1</span>Upload the shipping-label PDF.</li>
+            <li><span>2</span>Upload the product-list PDF.</li>
+            <li><span>3</span>Generate the 4×6 thermal-label PDF.</li>
           </ol>
         </aside>
       </div>
@@ -259,7 +312,6 @@ export default function LabelsClient() {
         </div>
 
         {latestState === 'loading' && <p className="label-empty">Checking for a generated file...</p>}
-        {latestState === 'error' && <p className="notice notice-error" role="alert">{latestError}</p>}
         {latestState === 'empty' && <p className="label-empty">No generated file yet. Generate a PDF to see it here.</p>}
         {latestState === 'ready' && result && (
           <div className="label-doc">
@@ -275,7 +327,7 @@ export default function LabelsClient() {
               </p>
             </div>
             {result.downloadUrl ? (
-              <a className="dash-outline label-download" href={result.downloadUrl}>
+              <a className="dash-outline label-download" href={result.downloadUrl} download={result.filename || 'thermal-labels.pdf'}>
                 <Icon name="download" />
                 Download PDF
               </a>
