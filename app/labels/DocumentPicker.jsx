@@ -1,20 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import ListPager from '../components/ListPager';
+import TypeSelect from '../components/TypeSelect';
 
 const PAGE_SIZE = 20;
-
-function pageList(page, pageCount) {
-  if (pageCount <= 7) return Array.from({ length: pageCount }, (_, index) => index + 1);
-  const numbers = [1, pageCount, page - 1, page, page + 1].filter((number) => number >= 1 && number <= pageCount);
-  const unique = [...new Set(numbers)].sort((left, right) => left - right);
-  const items = [];
-  unique.forEach((number, index) => {
-    if (index > 0 && number - unique[index - 1] > 1) items.push(`gap-${number}`);
-    items.push(number);
-  });
-  return items;
-}
 
 const EMPTY_FILTERS = {
   account: 'all',
@@ -216,12 +206,12 @@ export default function DocumentPicker({ onMessage }) {
         <form id="label-filters" className="label-filters" onSubmit={applyFilters}>
           <label>
             <span>Account</span>
-            <select value={draft.account} onChange={(event) => updateDraft('account', event.target.value)}>
-              <option value="all">All accounts</option>
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>{account.name}</option>
-              ))}
-            </select>
+            <TypeSelect
+              label="Account"
+              value={draft.account}
+              options={[{ id: 'all', label: 'All accounts' }, ...accounts.map((account) => ({ id: account.id, label: account.name }))]}
+              onChange={(next) => updateDraft('account', next)}
+            />
           </label>
           <label>
             <span>From</span>
@@ -233,11 +223,16 @@ export default function DocumentPicker({ onMessage }) {
           </label>
           <label>
             <span>Warehouse</span>
-            <select value={draft.warehouse} onChange={(event) => updateDraft('warehouse', event.target.value)}>
-              <option value="">All warehouses</option>
-              {warehouses.map((place) => <option key={place} value={place}>{place}</option>)}
-              {draft.warehouse && !warehouses.includes(draft.warehouse) ? <option value={draft.warehouse}>{draft.warehouse}</option> : null}
-            </select>
+            <TypeSelect
+              label="Warehouse"
+              value={draft.warehouse}
+              options={[
+                { id: '', label: 'All warehouses' },
+                ...warehouses.map((place) => ({ id: place, label: place })),
+                ...(draft.warehouse && !warehouses.includes(draft.warehouse) ? [{ id: draft.warehouse, label: draft.warehouse }] : []),
+              ]}
+              onChange={(next) => updateDraft('warehouse', next)}
+            />
           </label>
           <label>
             <span>Product or SKU</span>
@@ -291,30 +286,16 @@ export default function DocumentPicker({ onMessage }) {
       </div>
 
       {products.length > 0 ? (
-        <nav className="pipe-pager label-pager" aria-label="Product pages">
-          <span>Showing {rangeStart}–{rangeEnd} of {products.length}</span>
-          <div>
-            <button type="button" className="pipe-page-btn" onClick={() => setPage(Math.max(1, currentPage - 1))} disabled={currentPage <= 1}>
-              Previous
-            </button>
-            {pageList(currentPage, pageCount).map((item) => (
-              typeof item === 'number' ? (
-                <button
-                  key={item}
-                  type="button"
-                  className={item === currentPage ? 'pipe-page-btn is-current' : 'pipe-page-btn'}
-                  onClick={() => setPage(item)}
-                  aria-current={item === currentPage ? 'page' : undefined}
-                >
-                  {item}
-                </button>
-              ) : <span key={item}>…</span>
-            ))}
-            <button type="button" className="pipe-page-btn" onClick={() => setPage(Math.min(pageCount, currentPage + 1))} disabled={currentPage >= pageCount}>
-              Next
-            </button>
-          </div>
-        </nav>
+        <ListPager
+          label="Product pages"
+          page={currentPage}
+          pageCount={pageCount}
+          start={rangeStart}
+          end={rangeEnd}
+          total={products.length}
+          noun="products"
+          onPage={setPage}
+        />
       ) : null}
     </section>
   );

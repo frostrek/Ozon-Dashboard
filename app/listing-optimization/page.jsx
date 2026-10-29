@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo } from 'react';
+import TypeSelect from '../components/TypeSelect';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const PRIORITY_COLOR = { CRITICAL:'#DC2626', HIGH:'#F59E0B', MEDIUM:'#3B82F6', LOW:'#64748B' };
@@ -996,12 +997,17 @@ export default function ListingOptimizationPage() {
                         borderRadius:8, fontWeight:800, cursor:'pointer', fontSize:12
                     }}>{f}{counts[f]!==undefined ? ` (${counts[f]})` : ''}</button>
                 ))}
-                <select value={statusF} onChange={e=>setStatusF(e.target.value)} style={{ padding:'9px 14px', border:'1px solid #E2E8F0', borderRadius:8, fontSize:13, fontWeight:700 }}>
-                    <option value="ALL">All Status</option>
-                    <option value="PENDING">Pending</option>
-                    <option value="APPROVED">Approved</option>
-                    <option value="REJECTED">Rejected</option>
-                </select>
+                <TypeSelect
+                    label="Status"
+                    value={statusF}
+                    options={[
+                        { id: 'ALL', label: 'All Status' },
+                        { id: 'PENDING', label: 'Pending' },
+                        { id: 'APPROVED', label: 'Approved' },
+                        { id: 'REJECTED', label: 'Rejected' },
+                    ]}
+                    onChange={setStatusF}
+                />
             </div>
 
             {/* Loading */}

@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
+import ListPager from '../components/ListPager';
+import TypeSelect from '../components/TypeSelect';
 
 function statusLabel(status, cancelled) {
   if (cancelled) return 'Cancelled';
@@ -301,10 +303,6 @@ export default function PipelineClient({ accounts, initialAccountId }) {
   const selected = accounts.find((account) => account.id === accountId);
   const settled = liveState === 'running' || outcome?.account_id !== accountId ? null : outcome;
   const settledError = settled ? (runs.find((run) => run.id === settled.id)?.error_message || '') : '';
-  const pageWindow = Array.from({ length: pageCount }, (_, index) => index + 1).filter((number) => (
-    number === 1 || number === pageCount || Math.abs(number - page) <= 1
-  ));
-
   return (
     <div className="pipe-page">
       <header className="pipe-head">
@@ -315,17 +313,14 @@ export default function PipelineClient({ accounts, initialAccountId }) {
 
       <section className="stat-card pipe-control">
         <div className="pipe-start">
-          <label className="field" htmlFor="pipeline-account">
+          <label className="field">
             <span className="field-label">Select account</span>
-            <span className="pipe-select">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="3" /></svg>
-              <select id="pipeline-account" value={accountId} onChange={(event) => setAccountId(event.target.value)}>
-                {accounts.length === 0 && <option value="">No accounts yet</option>}
-                {accounts.map((account) => (
-                  <option key={account.id} value={account.id}>{account.name}</option>
-                ))}
-              </select>
-            </span>
+            <TypeSelect
+              label="Account"
+              value={accountId}
+              options={accounts.length === 0 ? [{ id: '', label: 'No accounts yet' }] : accounts.map((account) => ({ id: account.id, label: account.name }))}
+              onChange={setAccountId}
+            />
           </label>
           <label className="field" htmlFor="pipeline-from">
             <span className="field-label">From date</span>
@@ -529,30 +524,16 @@ export default function PipelineClient({ accounts, initialAccountId }) {
           </table>
         </div>
         {historyState === 'ready' && total > 0 && (
-          <nav className="pipe-pager" aria-label="Run history pages">
-            <span>Showing {rangeStart}–{rangeEnd} of {total}</span>
-            <div>
-              <button type="button" className="pipe-page-btn" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1}>
-                Previous
-              </button>
-              {pageWindow.map((number, index) => (
-                <span key={number} className="pipe-page-slot">
-                  {index > 0 && number - pageWindow[index - 1] > 1 && <span className="pipe-page-gap">…</span>}
-                  <button
-                    type="button"
-                    className={number === page ? 'pipe-page-btn is-current' : 'pipe-page-btn'}
-                    onClick={() => setPage(number)}
-                    aria-current={number === page ? 'page' : undefined}
-                  >
-                    {number}
-                  </button>
-                </span>
-              ))}
-              <button type="button" className="pipe-page-btn" onClick={() => setPage((current) => Math.min(pageCount, current + 1))} disabled={page >= pageCount}>
-                Next
-              </button>
-            </div>
-          </nav>
+          <ListPager
+            label="Run history pages"
+            page={page}
+            pageCount={pageCount}
+            start={rangeStart}
+            end={rangeEnd}
+            total={total}
+            noun="runs"
+            onPage={setPage}
+          />
         )}
       </section>
 

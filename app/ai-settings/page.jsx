@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from 'react';
+import TypeSelect from '../components/TypeSelect';
 
 const FIELDS = [
     { key: 'min_margin_pct',             label: 'Minimum Margin %',               type: 'float',  desc: 'Products below this margin will be flagged as CRITICAL' },
@@ -70,9 +71,12 @@ export default function AISettingsPage() {
                                 </div>
                                 <div>
                                     {field.type === 'select' ? (
-                                        <select value={settings[key] || ''} onChange={e => update(key, e.target.value)} style={{ width: '100%', background: 'white' }}>
-                                            {field.options.map(o => <option key={o} value={o}>{o}</option>)}
-                                        </select>
+                                        <TypeSelect
+                                            label={field.label}
+                                            value={settings[key] || field.options[0]}
+                                            options={field.options.map((option) => ({ id: option, label: option }))}
+                                            onChange={(next) => update(key, next)}
+                                        />
                                     ) : (
                                         <input
                                             type={field.type === 'text' ? 'text' : 'number'}

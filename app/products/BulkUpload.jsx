@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import TypeSelect from '../components/TypeSelect';
 
 export default function BulkUpload({ accounts, onClose, onReport }) {
   const [accountId, setAccountId] = useState(accounts[0]?.id || '');
@@ -40,10 +41,12 @@ export default function BulkUpload({ accounts, onClose, onReport }) {
         <p>CSV or Excel. One failed row does not stop the rest of the file.</p>
         <label className="field">
           <span className="field-label">Account</span>
-          <select value={accountId} onChange={(event) => setAccountId(event.target.value)} required>
-            {accounts.length === 0 && <option value="">No accounts yet</option>}
-            {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
-          </select>
+          <TypeSelect
+            label="Account"
+            value={accountId}
+            options={accounts.length === 0 ? [{ id: '', label: 'No accounts yet' }] : accounts.map((account) => ({ id: account.id, label: account.name }))}
+            onChange={setAccountId}
+          />
         </label>
         <label className="field">
           <span className="field-label">File</span>

@@ -336,6 +336,7 @@ function productCard(product, extra = {}) {
     amazonUrl: product?.amazon_url || (product?.asin ? `https://www.amazon.in/dp/${product.asin}` : ""),
     priceInr: product?.price_inr ?? null,
     weightGrams: product?.weight_grams ?? null,
+    previouslySaved: Boolean(product?.previouslySaved),
     ...extra,
   };
 }
@@ -451,6 +452,22 @@ async function collectProducts(modules) {
     scrapeRules: rules,
   });
   log("info", `Scrape returned ${scraped.length} product(s).`);
+  let knownAsins = new Set();
+  try {
+    knownAsins = modules.db.getExistingAsins();
+  } catch {
+    log("warn", "Existing catalog products could not be checked, so this run cannot separate them yet.");
+  }
+  const known = new Set([...knownAsins].map((asin) => String(asin || "").toUpperCase()));
+  let already = 0;
+  for (const product of scraped) {
+    const asin = String(product?.asin || "").toUpperCase();
+    if (asin && known.has(asin)) {
+      product.previouslySaved = true;
+      already += 1;
+    }
+  }
+  if (already) log("info", `${already} product(s) were already in the catalog. They are listed separately from the new scrape.`);
   const lastScrapedPage = startPage + pages - 1;
   try {
     modules.db.saveScrapeProgress({

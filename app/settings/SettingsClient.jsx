@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import TypeSelect from '../components/TypeSelect';
 
 const EMPTY = {
   telegram_bot_token_set: false,
@@ -121,13 +122,12 @@ export default function SettingsClient() {
         <label className="field">
           <span className="field-label">Translation provider</span>
           <span className="field-help">Google is the default. Grok is used only when a key is saved.</span>
-          <select
+          <TypeSelect
+            label="Translation provider"
             value={form.translation_provider}
-            onChange={(event) => setForm({ ...form, translation_provider: event.target.value })}
-          >
-            <option value="google">Google</option>
-            <option value="grok">Grok</option>
-          </select>
+            options={[{ id: 'google', label: 'Google' }, { id: 'grok', label: 'Grok' }]}
+            onChange={(next) => setForm({ ...form, translation_provider: next })}
+          />
         </label>
 
         {form.translation_provider === 'grok' && (

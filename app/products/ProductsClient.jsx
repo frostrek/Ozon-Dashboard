@@ -2,6 +2,8 @@
 
 import React, { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import ListPager from '../components/ListPager';
+import TypeSelect from '../components/TypeSelect';
 import AddProductForm from './AddProductForm';
 import BulkUpload from './BulkUpload';
 import ImportReport from './ImportReport';
@@ -18,18 +20,6 @@ const TABS = [
 ];
 
 const PAGE_SIZE = 10;
-
-function pageList(page, pageCount) {
-  if (pageCount <= 7) return Array.from({ length: pageCount }, (_, index) => index + 1);
-  const numbers = [1, pageCount, page - 1, page, page + 1].filter((number) => number >= 1 && number <= pageCount);
-  const unique = [...new Set(numbers)].sort((left, right) => left - right);
-  const items = [];
-  unique.forEach((number, index) => {
-    if (index > 0 && number - unique[index - 1] > 1) items.push(`gap-${number}`);
-    items.push(number);
-  });
-  return items;
-}
 
 function listedAt(product) {
   const updated = Date.parse(product.updated_at || '') || 0;
@@ -491,17 +481,24 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
           />
           {search && <button type="button" onClick={() => setSearch('')} aria-label="Clear search">Clear</button>}
         </label>
-        <select value={filterAccount} onChange={(event) => setFilterAccount(event.target.value)} aria-label="Account">
-          <option value="all">All accounts</option>
-          {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
-        </select>
-        <select value={listFilter} onChange={(event) => setListFilter(event.target.value)} aria-label="Filter products">
-          <option value="all">All products</option>
-          <option value="listed">Just listed</option>
-          <option value="selling">On sale</option>
-          <option value="out">Out of stock</option>
-          <option value="error">Errors</option>
-        </select>
+        <TypeSelect
+          label="Account"
+          value={filterAccount}
+          options={[{ id: 'all', label: 'All accounts' }, ...accounts.map((account) => ({ id: account.id, label: account.name }))]}
+          onChange={setFilterAccount}
+        />
+        <TypeSelect
+          label="Products"
+          value={listFilter}
+          options={[
+            { id: 'all', label: 'All products' },
+            { id: 'listed', label: 'Just listed' },
+            { id: 'selling', label: 'On sale' },
+            { id: 'out', label: 'Out of stock' },
+            { id: 'error', label: 'Errors' },
+          ]}
+          onChange={setListFilter}
+        />
         {(filtersActive || search) && (
           <button type="button" className="dash-outline prod-clear" onClick={clearFilters}>Clear filters</button>
         )}
@@ -619,30 +616,16 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
       </div>
 
       {groupEntries.length > 0 && (
-        <nav className="pipe-pager prod-pager" aria-label="Product pages">
-          <span>Showing {rangeStart}–{rangeEnd} of {groupEntries.length}</span>
-          <div>
-            <button type="button" className="pipe-page-btn" onClick={() => setPage(Math.max(1, currentPage - 1))} disabled={currentPage <= 1}>
-              Previous
-            </button>
-            {pageList(currentPage, pageCount).map((item) => (
-              typeof item === 'number' ? (
-                <button
-                  key={item}
-                  type="button"
-                  className={item === currentPage ? 'pipe-page-btn is-current' : 'pipe-page-btn'}
-                  onClick={() => setPage(item)}
-                  aria-current={item === currentPage ? 'page' : undefined}
-                >
-                  {item}
-                </button>
-              ) : <span key={item} className="prod-page-gap">…</span>
-            ))}
-            <button type="button" className="pipe-page-btn" onClick={() => setPage(Math.min(pageCount, currentPage + 1))} disabled={currentPage >= pageCount}>
-              Next
-            </button>
-          </div>
-        </nav>
+        <ListPager
+          label="Product pages"
+          page={currentPage}
+          pageCount={pageCount}
+          start={rangeStart}
+          end={rangeEnd}
+          total={groupEntries.length}
+          noun="products"
+          onPage={setPage}
+        />
       )}
       </section>
 

@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import TypeSelect from '../components/TypeSelect';
 
 const EMPTY = {
   accountId: '',
@@ -68,10 +69,12 @@ export default function AddProductForm({ accounts, onClose }) {
         <div className="prod-add-grid">
           <label className="field">
             <span className="field-label">Account</span>
-            <select value={values.accountId} onChange={(event) => setField('accountId', event.target.value)} required>
-              {accounts.length === 0 && <option value="">No accounts yet</option>}
-              {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
-            </select>
+            <TypeSelect
+              label="Account"
+              value={values.accountId}
+              options={accounts.length === 0 ? [{ id: '', label: 'No accounts yet' }] : accounts.map((account) => ({ id: account.id, label: account.name }))}
+              onChange={(next) => setField('accountId', next)}
+            />
           </label>
           <label className="field">
             <span className="field-label">SKU / offer id</span>
@@ -91,11 +94,12 @@ export default function AddProductForm({ accounts, onClose }) {
           </label>
           <label className="field">
             <span className="field-label">Currency</span>
-            <select value={values.currency} onChange={(event) => setField('currency', event.target.value)}>
-              <option value="RUB">RUB</option>
-              <option value="USD">USD</option>
-              <option value="INR">INR</option>
-            </select>
+            <TypeSelect
+              label="Currency"
+              value={values.currency}
+              options={[{ id: 'RUB', label: 'RUB' }, { id: 'USD', label: 'USD' }, { id: 'INR', label: 'INR' }]}
+              onChange={(next) => setField('currency', next)}
+            />
           </label>
           <label className="field">
             <span className="field-label">VAT</span>

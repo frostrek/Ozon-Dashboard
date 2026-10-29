@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import ListPager from '../components/ListPager';
+import TypeSelect from '../components/TypeSelect';
 
 const STATUS_LABEL = {
   AWAITING_PACKAGING: 'Awaiting Packaging',
@@ -499,20 +501,6 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
 
   const rangeStart = filteredCount === 0 ? 0 : ((currentPage - 1) * pageSize) + 1;
   const rangeEnd = Math.min(currentPage * pageSize, filteredCount);
-  const pageNumbers = (() => {
-    if (pageCount <= 7) return Array.from({ length: pageCount }, (_, index) => index + 1);
-    const numbers = new Set([1, pageCount]);
-    const start = currentPage <= 4 ? 1 : currentPage >= pageCount - 3 ? Math.max(1, pageCount - 4) : currentPage - 2;
-    const end = currentPage <= 4 ? Math.min(5, pageCount) : currentPage >= pageCount - 3 ? pageCount : currentPage + 2;
-    for (let number = start; number <= end; number += 1) numbers.add(number);
-    const unique = [...numbers].sort((left, right) => left - right);
-    const items = [];
-    unique.forEach((number, index) => {
-      if (index > 0 && number - unique[index - 1] > 1) items.push(`gap-${number}`);
-      items.push(number);
-    });
-    return items;
-  })();
 
   return (
     <div className="orders-page">
@@ -557,11 +545,12 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
 
         <label className="orders-account">
           <Icon><path d="M12 3 4 7l8 4 8-4-8-4Z" /><path d="m4 12 8 4 8-4" /><path d="m4 17 8 4 8-4" /></Icon>
-          <select defaultValue={currentAccount || 'all'} aria-label="Account"
-            onChange={e => { window.location.href = buildUrl({ account: e.target.value, page: '1' }); }}>
-            <option value="all">All Accounts</option>
-            {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
+          <TypeSelect
+            label="Account"
+            value={currentAccount || 'all'}
+            options={[{ id: 'all', label: 'All Accounts' }, ...accounts.map((account) => ({ id: account.id, label: account.name }))]}
+            onChange={(next) => { window.location.href = buildUrl({ account: next, page: '1' }); }}
+          />
         </label>
 
         <form method="get" action="/orders" className="orders-search" onSubmit={() => setSearching(true)}>
@@ -751,26 +740,19 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
         </table>
       </div>
 
-      <nav className="orders-pager" aria-label="Order pages">
-        <span>{filteredCount === 0 ? 'Showing 0 orders' : `Showing ${rangeStart.toLocaleString('en-US')}–${rangeEnd.toLocaleString('en-US')} of ${filteredCount.toLocaleString('en-US')} orders`}</span>
-        <label>
-          Rows per page
-          <select value={pageSize} aria-label="Rows per page" onChange={(event) => { window.location.href = buildUrl({ pageSize: event.target.value, page: '1' }); }}>
-            {[10, 20, 50].map((size) => <option key={size} value={size}>{size}</option>)}
-          </select>
-        </label>
-        <div>
-          <a className={currentPage <= 1 ? 'is-disabled' : ''} href={currentPage <= 1 ? undefined : buildUrl({ page: '1' })} aria-label="First page" aria-disabled={currentPage <= 1}>«</a>
-          <a className={currentPage <= 1 ? 'is-disabled' : ''} href={currentPage <= 1 ? undefined : buildUrl({ page: String(currentPage - 1) })} aria-disabled={currentPage <= 1}>Previous</a>
-          {pageNumbers.map((item) => (
-            typeof item === 'number' ? (
-              <a key={item} href={buildUrl({ page: String(item) })} className={item === currentPage ? 'is-current' : ''} aria-current={item === currentPage ? 'page' : undefined}>{item}</a>
-            ) : <span key={item}>…</span>
-          ))}
-          <a className={currentPage >= pageCount ? 'is-disabled' : ''} href={currentPage >= pageCount ? undefined : buildUrl({ page: String(currentPage + 1) })} aria-disabled={currentPage >= pageCount}>Next</a>
-          <a className={currentPage >= pageCount ? 'is-disabled' : ''} href={currentPage >= pageCount ? undefined : buildUrl({ page: String(pageCount) })} aria-label="Last page" aria-disabled={currentPage >= pageCount}>»</a>
-        </div>
-      </nav>
+      <ListPager
+        label="Order pages"
+        page={currentPage}
+        pageCount={pageCount}
+        start={rangeStart}
+        end={rangeEnd}
+        total={filteredCount}
+        noun={filteredCount === 1 ? 'order' : 'orders'}
+        hrefFor={(page) => buildUrl({ page: String(page) })}
+        pageSize={pageSize}
+        pageSizes={[10, 20, 50]}
+        hrefForSize={(size) => buildUrl({ pageSize: String(size), page: '1' })}
+      />
 
       <OrderDrawer order={selected} onClose={() => setSelected(null)} />
       {statusChange && (

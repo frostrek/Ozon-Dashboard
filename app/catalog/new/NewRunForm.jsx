@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import TypeSelect from '../../components/TypeSelect';
 
 const WEIGHT_BANDS = [
   { id: 'upto100', label: 'Up to 100 g', help: 'Also creates packs of 2, 3 and 4.' },
@@ -370,11 +371,12 @@ export default function NewRunForm({ accounts, activeRun = null }) {
       <label className="field">
         <span className="field-label">Account</span>
         <span className="field-help">The API key stays on the server.</span>
-        <select value={accountId} onChange={(event) => setAccountId(event.target.value)} required>
-          {accounts.map((account) => (
-            <option key={account.id} value={account.id}>{account.name}</option>
-          ))}
-        </select>
+        <TypeSelect
+          label="Account"
+          value={accountId}
+          options={accounts.map((account) => ({ id: account.id, label: account.name }))}
+          onChange={setAccountId}
+        />
       </label>
 
       <ol className="catalog-steps" aria-label="Catalog questions">
@@ -432,27 +434,24 @@ export default function NewRunForm({ accounts, activeRun = null }) {
               </label>
               <label className="field">
                 <span className="field-label">Select a category</span>
-                <select
+                <TypeSelect
+                  label="Category"
                   value={picked ? `${picked.catId}:${picked.typeId}` : ''}
-                  onChange={(event) => {
-                    const item = results.find((row) => `${row.catId}:${row.typeId}` === event.target.value);
+                  options={[
+                    { id: '', label: searching ? 'Searching…' : (results.length ? 'Choose from the list' : 'Type at least 2 letters') },
+                    ...results.map((item) => ({ id: `${item.catId}:${item.typeId}`, label: item.label })),
+                    ...(picked && !results.some((item) => item.catId === picked.catId && item.typeId === picked.typeId)
+                      ? [{ id: `${picked.catId}:${picked.typeId}`, label: picked.label }]
+                      : []),
+                  ]}
+                  onChange={(next) => {
+                    const item = results.find((row) => `${row.catId}:${row.typeId}` === next)
+                      || (picked && `${picked.catId}:${picked.typeId}` === next ? picked : null);
                     if (!item) return;
                     setPicked(item);
                     setCategory(item);
                   }}
-                >
-                  <option value="">
-                    {searching ? 'Searching…' : (results.length ? 'Choose from the list' : 'Type at least 2 letters')}
-                  </option>
-                  {results.map((item) => (
-                    <option key={`${item.catId}-${item.typeId}`} value={`${item.catId}:${item.typeId}`}>
-                      {item.label}
-                    </option>
-                  ))}
-                  {picked && !results.some((item) => item.catId === picked.catId && item.typeId === picked.typeId) ? (
-                    <option value={`${picked.catId}:${picked.typeId}`}>{picked.label}</option>
-                  ) : null}
-                </select>
+                />
               </label>
               {searching ? <p className="field-help">Searching the saved Ozon category list…</p> : null}
               {searchNote ? <p className="field-help">{searchNote}</p> : null}
@@ -578,18 +577,15 @@ export default function NewRunForm({ accounts, activeRun = null }) {
             <div className="catalog-custom">
               <label className="field">
                 <span className="field-label">What</span>
-                <select
+                <TypeSelect
+                  label="Condition"
                   value={scrapeRules.custom?.kind || ''}
-                  onChange={(event) => setScrapeRules((current) => ({
+                  options={[{ id: '', label: 'Nothing selected' }, ...CUSTOM_CONDITIONS.map((item) => ({ id: item.id, label: item.label }))]}
+                  onChange={(next) => setScrapeRules((current) => ({
                     ...current,
-                    custom: { kind: event.target.value, amount: event.target.value ? current.custom?.amount || '' : '' },
+                    custom: { kind: next, amount: next ? current.custom?.amount || '' : '' },
                   }))}
-                >
-                  <option value="">Nothing selected</option>
-                  {CUSTOM_CONDITIONS.map((item) => (
-                    <option key={item.id} value={item.id}>{item.label}</option>
-                  ))}
-                </select>
+                />
               </label>
               <label className="field">
                 <span className="field-label">How much{scrapeRules.custom?.kind ? ` (${CUSTOM_CONDITIONS.find((item) => item.id === scrapeRules.custom.kind)?.unit})` : ''}</span>

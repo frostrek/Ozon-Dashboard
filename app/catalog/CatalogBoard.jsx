@@ -1,7 +1,10 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import ListPager from '../components/ListPager';
+import TypeSelect from '../components/TypeSelect';
 
 const PAGE_SIZE = 10;
 
@@ -53,18 +56,6 @@ function inDateRange(value, range) {
   return date >= start;
 }
 
-function pageList(page, pageCount) {
-  if (pageCount <= 7) return Array.from({ length: pageCount }, (_, index) => index + 1);
-  const numbers = [1, pageCount, page - 1, page, page + 1].filter((number) => number >= 1 && number <= pageCount);
-  const unique = [...new Set(numbers)].sort((left, right) => left - right);
-  const items = [];
-  unique.forEach((number, index) => {
-    if (index > 0 && number - unique[index - 1] > 1) items.push(`gap-${number}`);
-    items.push(number);
-  });
-  return items;
-}
-
 function Icon({ name }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -79,7 +70,18 @@ function Icon({ name }) {
   );
 }
 
+function CatalogTabs({ current }) {
+  return (
+    <nav className="catalog-tabs" aria-label="Catalog sections">
+      <Link href="/catalog" className={current === 'runs' ? 'is-on' : ''}>Runs</Link>
+      <Link href="/catalog/scraped" className={current === 'scraped' ? 'is-on' : ''}>Scraped products</Link>
+    </nav>
+  );
+}
+
 export default function CatalogBoard({ runs, active }) {
+  const router = useRouter();
+  const [deleting, setDeleting] = useState('');
   const [search, setSearch] = useState('');
   const [account, setAccount] = useState('all');
   const [status, setStatus] = useState('all');
@@ -118,6 +120,26 @@ export default function CatalogBoard({ runs, active }) {
     return () => document.removeEventListener('pointerdown', close);
   }, []);
 
+  async function deleteRun(run) {
+    if (run.status === 'pending' || run.status === 'running') return;
+    if (!window.confirm(`Delete “${run.title}”? Products already saved stay in Scraped products.`)) return;
+    setDeleting(run.runId);
+    try {
+      const response = await fetch(`/api/catalog/runs/${run.runId}`, { method: 'DELETE' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        window.alert(data.error || 'This run could not be deleted.');
+        return;
+      }
+      setMenuId('');
+      router.refresh();
+    } catch {
+      window.alert('This run could not be deleted.');
+    } finally {
+      setDeleting('');
+    }
+  }
+
   const counts = {
     total: filtered.length,
     ready: filtered.filter((run) => run.status === 'awaiting_confirm').length,
@@ -140,6 +162,7 @@ export default function CatalogBoard({ runs, active }) {
           </div>
           <Link className="dash-primary catalog-new" href="/catalog/new"><Icon name="plus" />New run</Link>
         </header>
+        <CatalogTabs current="runs" />
         <section className="catalog-empty">
           <h2>No catalog runs yet</h2>
           <p>Start a run to scrape products, preview the Russian titles and USD prices, and push the ones that match the weights you choose.</p>
@@ -158,6 +181,7 @@ export default function CatalogBoard({ runs, active }) {
         </div>
         <Link className="dash-primary catalog-new" href="/catalog/new"><Icon name="plus" />New run</Link>
       </header>
+      <CatalogTabs current="runs" />
 
       {active ? (
         <p className="catalog-live" role="status">
@@ -196,17 +220,9 @@ export default function CatalogBoard({ runs, active }) {
             aria-label="Search keyword"
           />
         </label>
-        <select value={account} onChange={(event) => setAccount(event.target.value)} aria-label="Account">
-          <option value="all">All accounts</option>
-          {accounts.map((name) => <option key={name} value={name}>{name}</option>)}
-        </select>
-        <select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="Status">
-          <option value="all">All statuses</option>
-          {statuses.map((item) => <option key={item} value={item}>{statusLabel(item)}</option>)}
-        </select>
-        <select value={date} onChange={(event) => setDate(event.target.value)} aria-label="Date">
-          {DATES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-        </select>
+        <TypeSelect label="Account" value={account} options={[{ id: 'all', label: 'All accounts' }, ...accounts.map((name) => ({ id: name, label: name }))]} onChange={setAccount} />
+        <TypeSelect label="Status" value={status} options={[{ id: 'all', label: 'All statuses' }, ...statuses.map((item) => ({ id: item, label: statusLabel(item) }))]} onChange={setStatus} />
+        <TypeSelect label="Date" value={date} options={DATES} onChange={setDate} />
       </div>
 
       <div className="table-wrap catalog-table-wrap">
@@ -250,6 +266,14 @@ export default function CatalogBoard({ runs, active }) {
                     {menuId === run.runId ? (
                       <div className="catalog-menu-pop" role="menu">
                         <Link href={`/catalog/runs/${run.runId}`} role="menuitem">Open run</Link>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={deleting === run.runId || run.status === 'pending' || run.status === 'running'}
+                          onClick={() => deleteRun(run)}
+                        >
+                          {deleting === run.runId ? 'Deleting...' : 'Delete run'}
+                        </button>
                       </div>
                     ) : null}
                   </div>
@@ -260,26 +284,16 @@ export default function CatalogBoard({ runs, active }) {
         </table>
       </div>
 
-      <nav className="pipe-pager catalog-pager" aria-label="Catalog pages">
-        <span>{filtered.length === 0 ? 'Showing 0 runs' : `Showing ${start}–${end} of ${filtered.length} runs`}</span>
-        <div>
-          <button type="button" className="pipe-page-btn" onClick={() => setPage(Math.max(1, currentPage - 1))} disabled={currentPage <= 1}>Previous</button>
-          {pageList(currentPage, pageCount).map((item) => (
-            typeof item === 'number' ? (
-              <button
-                key={item}
-                type="button"
-                className={item === currentPage ? 'pipe-page-btn is-current' : 'pipe-page-btn'}
-                onClick={() => setPage(item)}
-                aria-current={item === currentPage ? 'page' : undefined}
-              >
-                {item}
-              </button>
-            ) : <span key={item}>…</span>
-          ))}
-          <button type="button" className="pipe-page-btn" onClick={() => setPage(Math.min(pageCount, currentPage + 1))} disabled={currentPage >= pageCount}>Next</button>
-        </div>
-      </nav>
+      <ListPager
+        label="Catalog pages"
+        page={currentPage}
+        pageCount={pageCount}
+        start={start}
+        end={end}
+        total={filtered.length}
+        noun="runs"
+        onPage={setPage}
+      />
     </div>
   );
 }
