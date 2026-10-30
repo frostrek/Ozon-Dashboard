@@ -136,7 +136,13 @@ export default function NewRunForm({ accounts, activeRun = null }) {
         setSettingsReady(true);
       })
       .catch(() => {
-        if (!cancelled) setError('Saved catalog settings could not be loaded.');
+        if (!cancelled) {
+          setOldPriceMultiplier('2');
+          setPages('3');
+          setStartPage('1');
+          setSettingsReady(true);
+          setError('Saved catalog settings could not be loaded. Using defaults.');
+        }
       });
     return () => {
       cancelled = true;
@@ -636,7 +642,7 @@ export default function NewRunForm({ accounts, activeRun = null }) {
         <label className="field">
           <span className="field-label">Old price multiplier</span>
           <span className="field-help">For example 2.0 for a 50% discount label.</span>
-          <input type="number" min="1" step="0.1" value={oldPriceMultiplier} onChange={(event) => setOldPriceMultiplier(event.target.value)} autoFocus disabled={!settingsReady} />
+          <input type="number" min="1" step="0.1" value={oldPriceMultiplier} onChange={(event) => setOldPriceMultiplier(event.target.value)} autoFocus />
         </label>
       ) : null}
 
@@ -644,7 +650,7 @@ export default function NewRunForm({ accounts, activeRun = null }) {
         <label className="field">
           <span className="field-label">How many pages to scrape in this batch?</span>
           <span className="field-help">Type 0 to skip scraping and push products already saved.</span>
-          <input type="number" min="0" max="10" value={pages} onChange={(event) => setPages(event.target.value)} autoFocus disabled={!settingsReady} />
+          <input type="number" min="0" max="10" value={pages} onChange={(event) => setPages(event.target.value)} autoFocus />
         </label>
       ) : null}
 

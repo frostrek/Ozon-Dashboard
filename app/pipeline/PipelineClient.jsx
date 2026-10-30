@@ -362,7 +362,9 @@ export default function PipelineClient({ accounts, initialAccountId }) {
       </section>
 
       {runningForAccount && !activeRunId && (
-        <p className="notice notice-warn">A pipeline is already running for this account.</p>
+        <p className="notice notice-warn">
+          A pipeline is already running for this account. Refresh this page in a moment, or wait about a minute if the last run crashed — stale runs clear automatically.
+        </p>
       )}
       {error && <p className="notice notice-error" role="alert">{error}</p>}
 

@@ -5,13 +5,15 @@ import { DEFAULT_RULES, normalizeRules } from '../../../../lib/catalog/scrapeRul
 
 export const dynamic = 'force-dynamic';
 
+const SETTING_ID = 'default';
+
 function bandsFromRow(row = {}) {
   if (row.weightBands) {
     try {
       const parsed = typeof row.weightBands === 'string' ? JSON.parse(row.weightBands) : row.weightBands;
       if (parsed && typeof parsed === 'object') return normalizeBands(parsed);
     } catch {
-      /* fall through to an empty selection */
+      /* fall through */
     }
   }
   return { ...DEFAULT_BANDS };
@@ -41,62 +43,57 @@ function clean(row = {}) {
   };
 }
 
-async function ensureBandsColumn() {
-  const columns = await prisma.$queryRawUnsafe('PRAGMA table_info(CatalogSetting)');
-  if (!columns.some((column) => column.name === 'weightBands')) {
-    await prisma.$executeRawUnsafe('ALTER TABLE CatalogSetting ADD COLUMN weightBands TEXT');
-  }
-  if (!columns.some((column) => column.name === 'scrapeRules')) {
-    await prisma.$executeRawUnsafe('ALTER TABLE CatalogSetting ADD COLUMN scrapeRules TEXT');
-  }
+async function readSetting() {
+  return prisma.catalogSetting.findUnique({ where: { id: SETTING_ID } });
 }
 
-async function readSetting() {
-  await ensureBandsColumn();
-  const rows = await prisma.$queryRawUnsafe(
-    'SELECT startPage, pages, oldPriceMultiplier, productLimit, applyWeightGate, weightBands, scrapeRules FROM CatalogSetting WHERE id = ?',
-    'default',
-  );
-  return rows[0] || null;
+async function ensureSetting() {
+  const existing = await readSetting();
+  if (existing) return existing;
+  return prisma.catalogSetting.create({
+    data: {
+      id: SETTING_ID,
+      startPage: 1,
+      pages: 3,
+      oldPriceMultiplier: 2,
+      productLimit: 20,
+      applyWeightGate: true,
+      weightBands: JSON.stringify(DEFAULT_BANDS),
+      scrapeRules: JSON.stringify(DEFAULT_RULES),
+    },
+  });
 }
 
 export async function GET() {
-  const existing = await readSetting();
-  if (!existing) {
-    await prisma.$executeRawUnsafe(
-      'INSERT INTO CatalogSetting (id, startPage, pages, oldPriceMultiplier, productLimit, applyWeightGate, weightBands, scrapeRules, updatedAt) VALUES (?, 1, 3, 2, 20, 1, ?, ?, CURRENT_TIMESTAMP)',
-      'default',
-      JSON.stringify(DEFAULT_BANDS),
-      JSON.stringify(DEFAULT_RULES),
-    );
-  }
-  return NextResponse.json(clean(existing || { startPage: 1, pages: 3, oldPriceMultiplier: 2, productLimit: 20, applyWeightGate: 1 }));
+  const row = await ensureSetting();
+  return NextResponse.json(clean(row));
 }
 
 export async function POST(request) {
   const body = await request.json().catch(() => ({}));
   const saved = clean(body);
-  await ensureBandsColumn();
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO CatalogSetting (id, startPage, pages, oldPriceMultiplier, productLimit, applyWeightGate, weightBands, scrapeRules, updatedAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-     ON CONFLICT(id) DO UPDATE SET
-       startPage = excluded.startPage,
-       pages = excluded.pages,
-       oldPriceMultiplier = excluded.oldPriceMultiplier,
-       productLimit = excluded.productLimit,
-       applyWeightGate = excluded.applyWeightGate,
-       weightBands = excluded.weightBands,
-       scrapeRules = excluded.scrapeRules,
-       updatedAt = CURRENT_TIMESTAMP`,
-    'default',
-    saved.startPage,
-    saved.pages,
-    saved.oldPriceMultiplier,
-    saved.productLimit,
-    saved.applyWeightGate ? 1 : 0,
-    JSON.stringify(saved.weightBands),
-    JSON.stringify(saved.scrapeRules),
-  );
+  const bands = saved.weightBands;
+  await prisma.catalogSetting.upsert({
+    where: { id: SETTING_ID },
+    create: {
+      id: SETTING_ID,
+      startPage: saved.startPage,
+      pages: saved.pages,
+      oldPriceMultiplier: saved.oldPriceMultiplier,
+      productLimit: saved.productLimit,
+      applyWeightGate: saved.applyWeightGate,
+      weightBands: JSON.stringify(bands),
+      scrapeRules: JSON.stringify(saved.scrapeRules),
+    },
+    update: {
+      startPage: saved.startPage,
+      pages: saved.pages,
+      oldPriceMultiplier: saved.oldPriceMultiplier,
+      productLimit: saved.productLimit,
+      applyWeightGate: saved.applyWeightGate,
+      weightBands: JSON.stringify(bands),
+      scrapeRules: JSON.stringify(saved.scrapeRules),
+    },
+  });
   return NextResponse.json(saved);
 }
