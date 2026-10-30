@@ -2,12 +2,105 @@ import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NextResponse } from 'next/server';
+import { prisma } from '../../../../lib/prisma';
+import { ozonPost } from '../../../../ozon-http.js';
 
 const DASHBOARD_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 
 export const dynamic = 'force-dynamic';
 
 let cachedTree = null;
+let loadingTree = null;
+
+function flattenOzonTree(nodes, currentDescCatId = null, currentPath = '') {
+  const results = [];
+  if (!Array.isArray(nodes)) return results;
+  for (const node of nodes) {
+    if (node.disabled) continue;
+    const descId = node.description_category_id || currentDescCatId;
+    const name = node.category_name || node.type_name || 'Unknown';
+    const nextPath = currentPath ? `${currentPath} > ${name}` : name;
+    if (node.type_id && descId) results.push({ catId: descId, typeId: node.type_id, label: nextPath });
+    if (Array.isArray(node.children) && node.children.length) {
+      results.push(...flattenOzonTree(node.children, descId, nextPath));
+    }
+  }
+  return results;
+}
+
+function mergeTrees(russian, english) {
+  const merged = new Map();
+  for (const item of russian) merged.set(`${item.catId}:${item.typeId}`, item);
+  for (const item of english) {
+    const key = `${item.catId}:${item.typeId}`;
+    const previous = merged.get(key);
+    if (!previous) {
+      merged.set(key, item);
+      continue;
+    }
+    previous.label = item.label;
+    previous.leaf = item.label.split('>').pop().trim().toLowerCase();
+    previous.hay = `${previous.hay} ${item.label}`.toLowerCase();
+  }
+  return [...merged.values()].map((item) => ({
+    catId: Number(item.catId),
+    typeId: Number(item.typeId),
+    label: String(item.label || '').trim(),
+    leaf: String(item.leaf || item.label || '').split('>').pop().trim().toLowerCase(),
+    hay: String(item.hay || item.label || '').toLowerCase(),
+  })).filter((item) => item.catId && item.typeId && item.label);
+}
+
+function categoryTreeFromDisk() {
+  const root = safeRoot();
+  const english = readTree(path.join(root, 'ozon-tree-en-cache.json'));
+  const russian = readTree(path.join(root, 'ozon-tree-ru-cache.json'));
+  if (!english.length && !russian.length) return [];
+  return mergeTrees(russian, english);
+}
+
+async function fetchOzonTree(account, language) {
+  const response = await ozonPost(
+    'https://api-seller.ozon.ru/v1/description-category/tree',
+    { language },
+    { 'Client-Id': String(account.client_id), 'Api-Key': account.api_key },
+    60_000,
+  );
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.message || `Ozon category list returned HTTP ${response.status}.`);
+    error.status = response.status;
+    throw error;
+  }
+  return flattenOzonTree(data.result || []);
+}
+
+async function ensureTree() {
+  if (cachedTree?.length) return cachedTree;
+  const disk = categoryTreeFromDisk();
+  if (disk.length) {
+    cachedTree = disk;
+    return cachedTree;
+  }
+  if (!loadingTree) {
+    loadingTree = (async () => {
+      const account = await prisma.account.findFirst({
+        where: { AND: [{ client_id: { not: '' } }, { api_key: { not: '' } }] },
+        orderBy: { name: 'asc' },
+      });
+      if (!account) throw new Error('Add a seller account with an Ozon client id and API key before searching categories.');
+      const english = await fetchOzonTree(account, 'EN');
+      let russian = [];
+      try { russian = await fetchOzonTree(account, 'RU'); } catch { russian = []; }
+      cachedTree = mergeTrees(russian, english);
+      if (!cachedTree.length) throw new Error('Ozon returned an empty category list.');
+      return cachedTree;
+    })().finally(() => {
+      loadingTree = null;
+    });
+  }
+  return loadingTree;
+}
 
 function safeRoot() {
   return process.env.CATALOG_SAFE_ROOT
@@ -38,25 +131,7 @@ function readTree(file) {
 }
 
 function categoryTree() {
-  if (cachedTree) return cachedTree;
-  const root = safeRoot();
-  const english = readTree(path.join(root, 'ozon-tree-en-cache.json'));
-  const russian = readTree(path.join(root, 'ozon-tree-ru-cache.json'));
-  const merged = new Map();
-  for (const item of russian) merged.set(`${item.catId}:${item.typeId}`, item);
-  for (const item of english) {
-    const key = `${item.catId}:${item.typeId}`;
-    const previous = merged.get(key);
-    if (!previous) {
-      merged.set(key, item);
-      continue;
-    }
-    previous.label = item.label;
-    previous.leaf = item.leaf;
-    previous.hay = `${previous.hay} ${item.hay}`;
-  }
-  cachedTree = [...merged.values()];
-  return cachedTree;
+  return cachedTree || categoryTreeFromDisk();
 }
 
 const SYNONYMS = {
@@ -107,12 +182,14 @@ export async function GET(request) {
   if (query.length < 2) {
     return NextResponse.json({ results: [], total: 0, error: 'Enter at least 2 characters.' }, { status: 400 });
   }
-  const tree = categoryTree();
-  if (!tree.length) {
+  let tree = [];
+  try {
+    tree = await ensureTree();
+  } catch (error) {
     return NextResponse.json({
       results: [],
       total: 0,
-      error: 'The saved Ozon category list is not available. Enter a category id and type id instead.',
+      error: error.message || 'Ozon categories could not be loaded. Use Enter custom ids and type the category id and type id.',
     });
   }
   const tokens = query.split(/\s+/).filter(Boolean);

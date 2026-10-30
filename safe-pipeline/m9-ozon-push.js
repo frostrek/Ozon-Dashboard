@@ -21,18 +21,14 @@ import { uploadRenderedImage } from "./m-image-renderer.js";
 import { getCountryId as getLocalCountryId, upsertCountry as upsertLocalCountry, isAlreadyUploaded, markAsUploaded } from "./m-local-db.js";
 
 
-const SUPABASE_URL = (Bun.env.SUPABASE_URL ?? "").trim();
-const SUPABASE_KEY = (Bun.env.SUPABASE_SERVICE_KEY ?? "").trim();
-const OZON_CLIENT_ID = (Bun.env.OZON_CLIENT_ID ?? "").trim();
-const OZON_API_KEY = (Bun.env.OZON_API_KEY ?? "").trim();
+const env = globalThis.Bun?.env || process.env;
+const SUPABASE_URL = String(env.SUPABASE_URL || "").trim();
+const SUPABASE_KEY = String(env.SUPABASE_SERVICE_KEY || "").trim();
+const OZON_CLIENT_ID = String(env.OZON_CLIENT_ID || "").trim();
+const OZON_API_KEY = String(env.OZON_API_KEY || "").trim();
 const OZON_HOST = "https://api-seller.ozon.ru";
 
-if (!SUPABASE_URL || !SUPABASE_KEY || !OZON_CLIENT_ID || !OZON_API_KEY) {
-  console.error("Missing credentials in .env");
-  process.exit(1);
-}
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabase = SUPABASE_URL && SUPABASE_KEY ? createClient(SUPABASE_URL, SUPABASE_KEY) : null;
 
 export async function ozonPost(path, body) {
   const res = await fetch(`${OZON_HOST}${path}`, {
@@ -225,7 +221,7 @@ let supabaseCircuitOpen = false;
 
 async function rehostImage(asin, idx, url) {
   // Fast path: circuit already open → skip everything instantly
-  if (supabaseCircuitOpen) return url;
+  if (supabaseCircuitOpen || !supabase) return url;
 
   try {
     // Fetch high-res image from Amazon
@@ -491,13 +487,17 @@ async function resolveCountry(name) {
   if (localId && localId !== 90312) return localId;    // 90312 = India default
 
   // 2. Try Supabase (may be unavailable when quota exceeded)
-  try {
-    const { data } = await supabase.from("ozon_countries").select("ozon_id").eq("name", name).single();
-    if (data?.ozon_id) {
-      await upsertLocalCountry(data.ozon_id, name);
-      return data.ozon_id;
+  if (supabase) {
+    try {
+      const { data } = await supabase.from("ozon_countries").select("ozon_id").eq("name", name).single();
+      if (data?.ozon_id) {
+        await upsertLocalCountry(data.ozon_id, name);
+        return data.ozon_id;
+      }
+    } catch {
+      /* country lookup can fall through to the India default */
     }
-  } catch {}
+  }
 
   return 90312; // India fallback
 }

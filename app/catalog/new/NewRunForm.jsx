@@ -444,7 +444,7 @@ export default function NewRunForm({ accounts, activeRun = null }) {
                   label="Category"
                   value={picked ? `${picked.catId}:${picked.typeId}` : ''}
                   options={[
-                    { id: '', label: searching ? 'Searching…' : (results.length ? 'Choose from the list' : 'Type at least 2 letters') },
+                    { id: '', label: searching ? 'Searching…' : (searchNote || (results.length ? 'Choose from the list' : (query.trim().length < 2 ? 'Type at least 2 letters' : 'No categories yet'))) },
                     ...results.map((item) => ({ id: `${item.catId}:${item.typeId}`, label: item.label })),
                     ...(picked && !results.some((item) => item.catId === picked.catId && item.typeId === picked.typeId)
                       ? [{ id: `${picked.catId}:${picked.typeId}`, label: picked.label }]
