@@ -19,6 +19,7 @@
  */
 
 import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
+import { loadCatalogRun, saveCatalogRun } from "./lib/catalog/runStore.js";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { bandAllows, bandsChosen, weightBandFor } from "./lib/catalog/weightBands.js";
@@ -195,6 +196,7 @@ function writeStatus(patch = {}) {
   const temp = `${statusPath}.tmp`;
   writeFileSync(temp, JSON.stringify(state, null, 2));
   renameSync(temp, statusPath);
+  saveCatalogRun(job.runId, { status: JSON.parse(JSON.stringify(state)) }).catch(() => {});
 }
 
 function loadExisting() {
@@ -378,18 +380,31 @@ function splitProducts(products) {
   return { ready, blocked };
 }
 
+function rememberProducts(rows) {
+  writeFileSync(productsPath, JSON.stringify(rows));
+  saveCatalogRun(job.runId, { products: rows }).catch(() => {});
+}
+
+async function savedProductRows() {
+  if (existsSync(productsPath)) return readJson(productsPath, []);
+  const stored = await loadCatalogRun(job.runId).catch(() => null);
+  return Array.isArray(stored?.products) ? stored.products : [];
+}
+
 async function collectProducts(modules) {
-  const reuseFile = existsSync(productsPath) && (
+  const continuing = Boolean(
     job.resume || job.action === "push" || job.action === "retry" || job.action === "tasks"
   );
-  if (reuseFile) {
-    const saved = readJson(productsPath, []);
-    log("info", `Using ${saved.length} saved product(s) from this run.`);
-    writeStatus({
-      currentStep: "process",
-      progress: { ...state.progress, processed: saved.length, total: saved.length || state.progress.total },
-    });
-    return saved;
+  if (continuing) {
+    const saved = await savedProductRows();
+    if (saved.length) {
+      log("info", `Using ${saved.length} saved product(s) from this run.`);
+      writeStatus({
+        currentStep: "process",
+        progress: { ...state.progress, processed: saved.length, total: saved.length || state.progress.total },
+      });
+      return saved;
+    }
   }
 
   if (job.mode === "single" && job.asin && job.scrape === false) {
@@ -400,7 +415,7 @@ async function collectProducts(modules) {
     if (!ready.length) {
       state.errors.push({ asin: saved.asin, reason: blocked[0]?.reason || "This product was not pushed." });
     }
-    writeFileSync(productsPath, JSON.stringify(ready));
+    rememberProducts(ready);
     writeStatus({
       currentStep: "process",
       progress: { ...state.progress, scraped: 1, processed: ready.length, total: ready.length },
@@ -425,7 +440,7 @@ async function collectProducts(modules) {
     }
     const { ready, blocked } = splitProducts(rows);
     state.blocked = blocked;
-    writeFileSync(productsPath, JSON.stringify(ready));
+    rememberProducts(ready);
     writeStatus({
       currentStep: "process",
       progress: { ...state.progress, scraped: rows.length, processed: ready.length, total: ready.length },
@@ -525,7 +540,7 @@ async function collectProducts(modules) {
     enriched = matched;
     if (matched.length) state.blocked = state.blocked.filter((product) => String(product.asin).toUpperCase() === asin);
   }
-  writeFileSync(productsPath, JSON.stringify(enriched));
+  rememberProducts(enriched);
   writeStatus({ progress: { ...state.progress, scraped: scraped.length, processed: enriched.length, total: enriched.length } });
   return enriched;
 }

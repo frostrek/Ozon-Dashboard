@@ -203,7 +203,7 @@ export default function RunLive({ initial, accounts = [], otherActive = null }) 
         const data = await response.json().catch(() => ({}));
         if (!alive) return;
         if (!response.ok) {
-          setLoadError(data.error || 'The run status could not be loaded.');
+          if (response.status === 404) setLoadError(data.error || 'This run is not on the server.');
           return;
         }
         setLoadError('');
@@ -214,7 +214,7 @@ export default function RunLive({ initial, accounts = [], otherActive = null }) 
           setBusy('');
         }
       } catch {
-        if (alive) setLoadError('The run status could not be loaded.');
+        /* a dropped connection keeps the last status already on the page */
       }
     }
     if (!live) return undefined;

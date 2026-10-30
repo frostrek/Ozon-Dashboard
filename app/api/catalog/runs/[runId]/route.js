@@ -12,6 +12,6 @@ export async function DELETE(_request, { params }) {
   if (status && (status.status === 'pending' || status.status === 'running')) {
     return NextResponse.json({ error: 'Wait until this run finishes before deleting it.' }, { status: 409 });
   }
-  deleteCatalogRun(runId);
+  await deleteCatalogRun(runId);
   return NextResponse.json({ ok: true, runId });
 }

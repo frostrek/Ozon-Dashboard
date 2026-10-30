@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '../../../../lib/prisma';
 import { assignRunAccount, deleteCatalogRun, isSafeRunId, readCatalogJob, readCatalogStatus, stopCatalogRun } from '../../../../lib/catalog/listRuns';
+import { loadCatalogRun } from '../../../../lib/catalog/runStore';
 import { startCatalogJob } from '../../../../lib/catalog/spawnCatalogJob';
 
 export const dynamic = 'force-dynamic';
@@ -20,7 +21,7 @@ export async function POST(request, { params }) {
   }
   const body = await request.json().catch(() => ({}));
   if (body.action === 'stop') {
-    if (!stopCatalogRun(params.runId)) {
+    if (!await stopCatalogRun(params.runId)) {
       return NextResponse.json({ error: 'This run is not on the server.' }, { status: 404 });
     }
     const status = await readCatalogStatus(params.runId);
@@ -32,14 +33,18 @@ export async function POST(request, { params }) {
     if (!nextAccount?.client_id || !nextAccount?.api_key) {
       return NextResponse.json({ error: 'That account has no Ozon client id or API key.' }, { status: 400 });
     }
-    if (!assignRunAccount(params.runId, nextAccount.id)) {
+    if (!await assignRunAccount(params.runId, nextAccount.id)) {
       return NextResponse.json({ error: 'This run is not on the server.' }, { status: 404 });
     }
     const status = await readCatalogStatus(params.runId);
     if (!status) return NextResponse.json({ error: 'This run is not on the server.' }, { status: 404 });
     return NextResponse.json({ ...status, accountName: nextAccount.name });
   }
-  const job = readCatalogJob(params.runId);
+  let job = readCatalogJob(params.runId);
+  if (!job) {
+    const stored = await loadCatalogRun(params.runId).catch(() => null);
+    job = stored?.job || null;
+  }
   if (!job) return NextResponse.json({ error: 'This run is not on the server.' }, { status: 404 });
   const account = await prisma.account.findUnique({ where: { id: String(job.accountId || '') } });
   if (!account?.client_id || !account?.api_key) {
@@ -67,6 +72,6 @@ export async function DELETE(_request, { params }) {
   if (status && (status.status === 'pending' || status.status === 'running')) {
     return NextResponse.json({ error: 'Wait until this run finishes before deleting it.' }, { status: 409 });
   }
-  deleteCatalogRun(runId);
+  await deleteCatalogRun(runId);
   return NextResponse.json({ ok: true, runId });
 }
