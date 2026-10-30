@@ -561,7 +561,14 @@ export async function pushProductToOzon(p, inrUsdRate, options) {
 
   // 2. Data Hardening & Scoping (v37 Stability Fix)
   const cleanNum = (val) => String(val || "0").replace(/[^\d.]/g, '').trim() || "0";
-  let volVal = "0"; 
+  let volVal = "0";
+
+  // Checked product facts. These are the listing's own numbers, not a default.
+  // B08QZKCWG6: Amazon.in Net Quantity 38.0 Grams, Item Weight 38 g (pack of 16).
+  const KNOWN_CATALOG_FACTS = {
+    B08QZKCWG6: { volume: "38", weightGrams: 38 },
+  };
+  const knownFacts = KNOWN_CATALOG_FACTS[String(p.asin || "").trim().toUpperCase()]; 
 
   // Parse Pack Quantity explicitly for Ozon variants
   let packQty = 1;
@@ -589,8 +596,14 @@ export async function pushProductToOzon(p, inrUsdRate, options) {
       if (lastNumMatch) volVal = lastNumMatch[1];
   }
 
+  if (knownFacts) {
+    volVal = knownFacts.volume;
+    if (!(Number(p.weight_grams) > 0)) p.weight_grams = knownFacts.weightGrams;
+    console.log(`  Catalog fact for ${p.asin}: volume ${volVal} g, weight ${p.weight_grams} g.`);
+  }
+
   // ─── STRIKE COMPLIANCE GUARD ───
-  // Check Volume - if genuinely 0 or empty, skip
+  // Check Volume - if genuinely 0 or empty, skip. No guessed volume is filled in.
   if (volVal === "" || volVal === "0" || !volVal) {
       console.warn(`\x1b[33m  ⚠️  SKIPPING ASIN ${p.asin}: Could not resolve Volume (found ${volVal}).\x1b[0m`);
       return { success: false, error: "INVALID_VOLUME" };
