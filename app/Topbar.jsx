@@ -42,7 +42,7 @@ export default function Topbar() {
       try {
         const [syncRes, runsRes] = await Promise.all([
           fetch('/api/sync/status', { cache: 'no-store' }),
-          fetch('/api/catalog/runs', { cache: 'no-store' }),
+          fetch('/api/catalog-jobs', { cache: 'no-store' }),
         ]);
         const sync = await syncRes.json();
         const catalog = await runsRes.json();

@@ -125,7 +125,7 @@ export default function CatalogBoard({ runs, active }) {
     if (!window.confirm(`Delete “${run.title}”? Products already saved stay in Scraped products.`)) return;
     setDeleting(run.runId);
     try {
-      const response = await fetch(`/api/catalog/runs/${run.runId}`, { method: 'DELETE' });
+      const response = await fetch(`/api/catalog-jobs/${run.runId}`, { method: 'DELETE' });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         window.alert(data.error || 'This run could not be deleted.');

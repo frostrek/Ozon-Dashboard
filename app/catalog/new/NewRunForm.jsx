@@ -313,7 +313,7 @@ export default function NewRunForm({ accounts, activeRun = null }) {
     }
     setStarting(true);
     try {
-      const response = await fetch('/api/catalog/runs', {
+      const response = await fetch('/api/catalog-jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
