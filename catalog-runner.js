@@ -392,7 +392,7 @@ async function collectProducts(modules) {
   }
 
   if (job.mode === "single" && job.asin && job.scrape === false) {
-    const saved = modules.db.getProductByAsin(String(job.asin).trim().toUpperCase());
+    const saved = await modules.db.getProductByAsin(String(job.asin).trim().toUpperCase());
     if (!saved) fail("process", `ASIN ${job.asin} is not in the local catalog. Add a keyword so it can be scraped first.`);
     const { ready, blocked } = splitProducts([saved]);
     state.blocked = blocked;
@@ -418,14 +418,7 @@ async function collectProducts(modules) {
     const tokens = keyword.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 2).slice(0, 6);
     let rows = [];
     try {
-      const db = modules.db.getDb();
-      const nameSql = tokens.map(() => "lower(name) LIKE ?").join(" AND ");
-      const params = tokens.map((token) => `%${token}%`);
-      const brandSql = brand ? " AND lower(ifnull(brand, '')) LIKE ?" : "";
-      if (brand) params.push(`%${String(brand).toLowerCase()}%`);
-      rows = nameSql
-        ? db.prepare(`SELECT * FROM products WHERE ${nameSql}${brandSql} LIMIT 200`).all(...params)
-        : [];
+      rows = await modules.db.findProductsByKeyword(tokens, brand);
     } catch {
       log("warn", "The local catalog database could not be read for existing products.");
     }
@@ -454,7 +447,7 @@ async function collectProducts(modules) {
   log("info", `Scrape returned ${scraped.length} product(s).`);
   let knownAsins = new Set();
   try {
-    knownAsins = modules.db.getExistingAsins();
+    knownAsins = await modules.db.getExistingAsins();
   } catch {
     log("warn", "Existing catalog products could not be checked, so this run cannot separate them yet.");
   }
@@ -470,7 +463,7 @@ async function collectProducts(modules) {
   if (already) log("info", `${already} product(s) were already in the catalog. They are listed separately from the new scrape.`);
   const lastScrapedPage = startPage + pages - 1;
   try {
-    modules.db.saveScrapeProgress({
+    await modules.db.saveScrapeProgress({
       keyword,
       brand: brand || "",
       categoryId: job.category?.catId,

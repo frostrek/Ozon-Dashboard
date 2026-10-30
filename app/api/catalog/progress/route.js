@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 import { NextResponse } from 'next/server';
+import { getMongoDb } from '../../../../lib/mongo';
 
 const DASHBOARD_ROOT = process.cwd();
 
@@ -38,36 +38,29 @@ function readJsonRows() {
   }
 }
 
-function readDbRows() {
-  const file = path.join(safeRoot(), 'ozon-pipeline.db');
-  if (!existsSync(file)) return readJsonRows();
-  const db = new DatabaseSync(file);
+async function readDbRows() {
   try {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS scrape_progress (
-        progress_key TEXT PRIMARY KEY,
-        keyword      TEXT NOT NULL,
-        brand        TEXT,
-        category_id  INTEGER NOT NULL,
-        type_id      INTEGER NOT NULL,
-        last_page    INTEGER NOT NULL,
-        updated_at   TEXT
-      )
-    `);
-    const insert = db.prepare(`
-      INSERT INTO scrape_progress (progress_key, keyword, brand, category_id, type_id, last_page, updated_at)
-      VALUES (?, ?, '', ?, ?, ?, ?)
-      ON CONFLICT(progress_key) DO NOTHING
-    `);
+    const collection = (await getMongoDb()).collection('catalog_scrape_progress');
     for (const row of readJsonRows()) {
       const [label, catId, typeId] = String(row.key).split('|');
-      insert.run(row.key, label || row.keyword, Number(catId), Number(typeId), row.lastPage, row.updatedAt || null);
+      await collection.updateOne(
+        { _id: row.key },
+        {
+          $setOnInsert: {
+            progress_key: row.key,
+            keyword: label || row.keyword,
+            brand: '',
+            category_id: Number(catId),
+            type_id: Number(typeId),
+            last_page: row.lastPage,
+            updated_at: row.updatedAt || null,
+          },
+        },
+        { upsert: true },
+      );
     }
-    return db.prepare(`
-      SELECT progress_key, keyword, brand, category_id, type_id, last_page, updated_at
-      FROM scrape_progress
-      WHERE last_page >= 1
-    `).all().map((row) => ({
+    const rows = await collection.find({ last_page: { $gte: 1 } }).toArray();
+    return rows.map((row) => ({
       key: row.progress_key,
       keyword: `${row.brand ? `${row.brand} ` : ''}${row.keyword}`.trim().toLowerCase(),
       categoryId: Number(row.category_id),
@@ -78,8 +71,6 @@ function readDbRows() {
     }));
   } catch {
     return readJsonRows();
-  } finally {
-    db.close();
   }
 }
 
@@ -116,7 +107,7 @@ export async function GET(request) {
       message: 'Enter the page to start from. Type 0 to skip scraping.',
     });
   }
-  const rows = readDbRows();
+  const rows = await readDbRows();
   const row = chooseRow(rows, keyword, brand, catId, typeId);
   if (!row) {
     return NextResponse.json({

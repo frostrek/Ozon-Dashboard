@@ -50,7 +50,7 @@ export default function Topbar() {
         setStatus(sync);
         setRuns(Array.isArray(catalog.runs) ? catalog.runs : []);
       } catch {
-        if (!cancelled) setStatus((current) => current || { syncState: 'failed', supabase: { label: 'Sync failed' }, sqlite: { ok: false, label: 'Local database unavailable' }, notifications: [], user: { name: 'Signed in', role: 'Operator' } });
+        if (!cancelled) setStatus((current) => current || { syncState: 'failed', supabase: { label: 'Sync failed' }, sqlite: { ok: false, label: 'MongoDB unavailable' }, notifications: [], user: { name: 'Signed in', role: 'Operator' } });
       }
     }
     load();
@@ -106,7 +106,7 @@ export default function Topbar() {
   const notes = status?.notifications || [];
   const user = status?.user || { name: 'Signed in', role: 'Operator' };
   const cloudLabel = status?.supabase?.label || 'Checking connection';
-  const sqliteLabel = status?.sqlite?.label || 'Checking local database';
+  const sqliteLabel = status?.sqlite?.label || 'Checking MongoDB';
   const syncState = status?.syncState || 'pending';
 
   async function logout() {

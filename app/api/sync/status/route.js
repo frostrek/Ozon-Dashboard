@@ -45,12 +45,11 @@ async function supabaseState() {
 
 export async function GET() {
   let sqliteOk = false;
-  let sqliteLabel = 'Local database unavailable';
+  let sqliteLabel = 'MongoDB unavailable';
   try {
-    await prisma.account.count();
-    const catalogDb = existsSync(path.join(safeRoot(), 'ozon-pipeline.db'));
+    const accounts = await prisma.account.count();
     sqliteOk = true;
-    sqliteLabel = catalogDb ? 'Local SQLite also active' : 'App database connected';
+    sqliteLabel = accounts >= 0 ? 'MongoDB connected' : 'MongoDB unavailable';
   } catch {
     sqliteOk = false;
   }

@@ -487,14 +487,14 @@ async function resolveBrand(brandName, catId, typeId) {
 
 async function resolveCountry(name) {
   // 1. Try local SQLite cache first (zero latency, works offline / quota exceeded)
-  const localId = getLocalCountryId(name);
+  const localId = await getLocalCountryId(name);
   if (localId && localId !== 90312) return localId;    // 90312 = India default
 
   // 2. Try Supabase (may be unavailable when quota exceeded)
   try {
     const { data } = await supabase.from("ozon_countries").select("ozon_id").eq("name", name).single();
     if (data?.ozon_id) {
-      upsertLocalCountry(data.ozon_id, name);  // prime local cache
+      await upsertLocalCountry(data.ozon_id, name);
       return data.ozon_id;
     }
   } catch {}
@@ -506,7 +506,7 @@ export async function pushProductToOzon(p, inrUsdRate, options) {
   const { descriptionCategoryId, typeId, typeLabel, oldPriceMultiplier, skipDuplicateCheck } = options;
 
   // ─── DB-LEVEL DUPLICATE LOGGING (Blocking Disabled per user request) ───
-  const existingUpload = isAlreadyUploaded(p.asin);
+  const existingUpload = await isAlreadyUploaded(p.asin);
   if (existingUpload) {
     console.log(`\x1b[36m  ℹ️  INFO: Product previously uploaded to Ozon (parent: ${existingUpload.parent_asin ?? 'standalone'}, variant: ${p.asin}, task: ${existingUpload.ozon_task_id ?? 'n/a'}). Proceeding anyway.\x1b[0m`);
     // Upload is no longer skipped
@@ -1351,7 +1351,7 @@ export async function pushProductToOzon(p, inrUsdRate, options) {
     uploadReport.task_id = taskId;
     uploadReport.upload_result = "SUCCESS";
     // Mark in DB so re-runs skip this ASIN
-    markAsUploaded(p.asin, p.parent_asin ?? null, taskId);
+    await markAsUploaded(p.asin, p.parent_asin ?? null, taskId);
   } else {
     uploadReport.upload_result = "FAIL";
   }

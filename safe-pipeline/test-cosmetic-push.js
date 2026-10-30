@@ -67,12 +67,13 @@ async function main() {
   console.log("\x1b[1m\x1b[35m=== COSMETIC SHADE PUSH — FULL PIPELINE ===\x1b[0m\n");
 
   // 1. DB health
-  const stats = dbStats();
-  console.log(`SQLite: ${stats.total} total rows | ${stats.variants} shade variants | ${stats.parents} parent groups`);
-  console.log(`Upload DB: ${uploadStats().total_ever} ever uploaded, ${uploadStats().uploaded_today} today\n`);
+  const stats = await dbStats();
+  const uploads = await uploadStats();
+  console.log(`MongoDB: ${stats.total} total rows | ${stats.variants} shade variants | ${stats.parents} parent groups`);
+  console.log(`Upload DB: ${uploads.total_ever} ever uploaded, ${uploads.uploaded_today} today\n`);
 
   // 2. Load all Maybelline products from DB
-  const allProducts = getProducts({ status: "enriched", limit: 2000 });
+  const allProducts = await getProducts({ status: "enriched", limit: 2000 });
   summary.products_scraped = allProducts.filter(p => {
     const b = (p.brand || '').toLowerCase();
     return b.includes('maybelline') || b.includes('lakm');

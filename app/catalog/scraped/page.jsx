@@ -18,7 +18,7 @@ function when(value) {
   return date.toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
-export default function ScrapedProductsPage({ searchParams }) {
+export default async function ScrapedProductsPage({ searchParams }) {
   const filters = {
     q: String(searchParams?.q || ''),
     brand: String(searchParams?.brand || 'all'),
@@ -27,7 +27,7 @@ export default function ScrapedProductsPage({ searchParams }) {
     page: String(searchParams?.page || '1'),
     pageSize: String(searchParams?.pageSize || '20'),
   };
-  const data = listScrapedProducts(filters);
+  const data = await listScrapedProducts(filters);
   const start = data.total === 0 ? 0 : ((data.page - 1) * data.pageSize) + 1;
   const end = Math.min(data.page * data.pageSize, data.total);
 

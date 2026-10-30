@@ -4,7 +4,7 @@
  * M5 — Insert + dedup  (Dual-mode: SQLite PRIMARY + Supabase OPTIONAL)
  *
  * Strategy:
- *   1. Always write to local SQLite (ozon-pipeline.db) — never fails due to quota.
+ *   1. Always write to MongoDB — never fails due to a cloud quota.
  *   2. Attempt Supabase sync. If quota/error → log warning, continue normally.
  *
  * Brand name cleaning (Amazon returns junk like "Visit the X Store" / "Brand: X"):
@@ -146,34 +146,33 @@ export async function insertProductsToDb(rawProducts) {
   console.log();
 
   // ── STEP 1: SQLite (always) ──────────────────────────────────────────────────
-  console.log("[1/3] Writing to local SQLite (ozon-pipeline.db)...");
+  console.log("[1/3] Writing to MongoDB...");
   let sqliteInserted = 0;
   try {
-    const existingAsins = getExistingAsins();
+    const existingAsins = await getExistingAsins();
     const toInsert = products.filter(p => !existingAsins.has(p.asin));
     const skipped  = products.length - toInsert.length;
 
     if (skipped > 0) {
       const existing = products.filter(p => existingAsins.has(p.asin));
-      const filled = fillMissingImages(existing);
-      console.log(`  ⏭️  Skipping ${skipped} existing products (local dedup).`);
+      const filled = await fillMissingImages(existing);
+      console.log(`  ⏭️  Skipping ${skipped} existing products (catalog dedup).`);
       if (filled) console.log(`  🖼️  Filled images on ${filled} existing product(s) that had none.`);
     }
 
     if (toInsert.length > 0) {
-      sqliteInserted = upsertProducts(toInsert);
-      console.log(`  ✅ SQLite: inserted ${sqliteInserted} new rows.`);
+      sqliteInserted = await upsertProducts(toInsert);
+      console.log(`  ✅ MongoDB: inserted ${sqliteInserted} new rows.`);
     } else {
-      console.log("  ✅ SQLite: no new products to insert.");
+      console.log("  ✅ MongoDB: no new products to insert.");
     }
   } catch (e) {
-    console.error(`  ❌ SQLite error: ${e.message}`);
-    // SQLite failure is fatal — we have nowhere to store data
+    console.error(`  ❌ MongoDB error: ${e.message}`);
     throw e;
   }
 
-  const sqliteTotal = countProducts();
-  console.log(`  📦 SQLite total: ${sqliteTotal} products`);
+  const sqliteTotal = await countProducts();
+  console.log(`  📦 MongoDB total: ${sqliteTotal} products`);
 
   // ── STEP 2: Supabase sync (optional) ────────────────────────────────────────
   console.log("\n[2/3] Syncing to Supabase (optional)...");
@@ -215,7 +214,7 @@ export async function insertProductsToDb(rawProducts) {
 
   // ── STEP 3: Verify ──────────────────────────────────────────────────────────
   console.log("\n[3/3] Summary");
-  console.log(`  Local SQLite  : ${sqliteTotal} total products`);
+  console.log(`  MongoDB catalog: ${sqliteTotal} total products`);
   if (supabaseAvailable && !supabaseError) {
     try {
       const countRes = await fetch(`${SUPABASE_URL}/rest/v1/products?select=count`,

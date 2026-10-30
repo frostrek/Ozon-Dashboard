@@ -3,14 +3,14 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "mongodb"
   url      = env("DATABASE_URL")
 }
 
 // ─── CORE PLATFORM ───────────────────────────────────────────────────────────
 
 model Account {
-  id         String   @id @default(cuid())
+  id         String   @id @default(cuid()) @map("_id")
   name       String
   client_id  String
   api_key    String
@@ -26,7 +26,7 @@ model Account {
 }
 
 model Product {
-  id                String    @id @default(cuid())
+  id                String    @id @default(cuid()) @map("_id")
   account_id        String
   ozon_id           String
   sku               String
@@ -79,7 +79,7 @@ model Product {
 
 // Existing legacy table — preserved exactly
 model AIAnalysis {
-  id                 String   @id @default(cuid())
+  id                 String   @id @default(cuid()) @map("_id")
   product_id         String   @unique
   health_score       Int      @default(0)
   amazon_data_json   String?
@@ -96,7 +96,7 @@ model AIAnalysis {
 
 // Existing — preserved exactly (200 rows)
 model ProductWorkflow {
-  id                       String  @id @default(cuid())
+  id                       String  @id @default(cuid()) @map("_id")
   product_id               String  @unique
   amazon_status            String? @default("PENDING")
   amazon_completed_at      String?
@@ -136,7 +136,7 @@ model ProductWorkflow {
 
 // Existing — preserved exactly (200 rows, REAL columns)
 model SEOAnalysis {
-  id                        String  @id @default(cuid())
+  id                        String  @id @default(cuid()) @map("_id")
   product_id                String  @unique
   score_total               Float?
   score_russian_keywords    Float?
@@ -170,7 +170,7 @@ model SEOAnalysis {
 
 // Existing — preserved exactly (11971 rows)
 model ListingOptimization {
-  id                       String  @id @default(cuid())
+  id                       String  @id @default(cuid()) @map("_id")
   product_id               String  @unique
   account_id               String?
   seo_score                Float?
@@ -198,7 +198,7 @@ model ListingOptimization {
 
 // Existing — preserved exactly (17 rows)
 model AgentRun {
-  id               String    @id @default(cuid())
+  id               String    @id @default(cuid()) @map("_id")
   agent_name       String
   status           String    @default("RUNNING")
   products_scanned Int       @default(0)
@@ -211,7 +211,7 @@ model AgentRun {
 
 // Existing — preserved exactly (1105 rows)
 model AgentTask {
-  id                String    @id @default(cuid())
+  id                String    @id @default(cuid()) @map("_id")
   account_id        String?
   product_id        String?
   agent_name        String
@@ -236,7 +236,7 @@ model AgentTask {
 }
 
 model CompetitorData {
-  id               String   @id @default(cuid())
+  id               String   @id @default(cuid()) @map("_id")
   product_id       String   @unique
   competitor_count Int      @default(0)
   avg_price        Float?
@@ -251,7 +251,7 @@ model CompetitorData {
 
 // NEW: Amazon product match reference (does not exist yet — safe to add)
 model AmazonReference {
-  id               String   @id @default(cuid())
+  id               String   @id @default(cuid()) @map("_id")
   product_id       String   @unique
   asin             String
   match_confidence Int      @default(0)
@@ -271,7 +271,7 @@ model AmazonReference {
 
 // NEW: LangGraph workflow state (resumable per-product pipeline)
 model WorkflowState {
-  id                       String   @id @default(cuid())
+  id                       String   @id @default(cuid()) @map("_id")
   product_id               String   @unique
   current_agent            String   @default("AMAZON_CROSS_REFERENCE")
   status                   String   @default("PENDING")
@@ -301,7 +301,7 @@ model WorkflowState {
 
 // NEW: AI Agent memory (learns from approvals/rejections)
 model AgentMemory {
-  id           String   @id @default(cuid())
+  id           String   @id @default(cuid()) @map("_id")
   product_id   String
   agent_name   String
   memory_type  String
@@ -316,7 +316,7 @@ model AgentMemory {
 
 // NEW: Per-execution structured log from every agent
 model AgentExecutionLog {
-  id               String   @id @default(cuid())
+  id               String   @id @default(cuid()) @map("_id")
   workflow_id      String
   product_id       String
   agent_name       String
@@ -336,7 +336,7 @@ model AgentExecutionLog {
 
 // NEW: Permanent human approval + push audit trail
 model WorkflowApproval {
-  id                String   @id @default(cuid())
+  id                String   @id @default(cuid()) @map("_id")
   product_id        String
   recommendation_id String?
   action            String
@@ -357,7 +357,7 @@ model WorkflowApproval {
 
 // NEW: Global AI configuration knobs
 model AISettings {
-  id                         String  @id @default("GLOBAL")
+  id                         String  @id @default("GLOBAL") @map("_id")
   min_margin_pct             Float   @default(15.0)
   min_match_confidence       Int     @default(90)
   min_seo_score              Int     @default(80)
@@ -374,7 +374,7 @@ model AISettings {
 
 // NEW: Permanent Product Identity mapping
 model ProductIdentity {
-  id              String   @id @default(cuid())
+  id              String   @id @default(cuid()) @map("_id")
   account_id      String
   client_id       String
   account_name    String?
@@ -398,7 +398,7 @@ model ProductIdentity {
 // ─── LEGACY SUPPORT TABLES ───────────────────────────────────────────────────
 
 model Order {
-  id                String   @id @default(cuid())
+  id                String   @id @default(cuid()) @map("_id")
   account_id        String
   posting_number    String
   status            String
@@ -414,7 +414,7 @@ model Order {
 }
 
 model OrderStatusHistory {
-  id         String   @id @default(cuid())
+  id         String   @id @default(cuid()) @map("_id")
   order_id   String
   status     String
   changed_at DateTime @default(now())
@@ -422,7 +422,7 @@ model OrderStatusHistory {
 }
 
 model Report {
-  id               String   @id @default(cuid())
+  id               String   @id @default(cuid()) @map("_id")
   account_id       String
   pdf_url          String?
   excel_url        String?
@@ -433,7 +433,7 @@ model Report {
 }
 
 model PipelineRun {
-  id               String    @id @default(cuid())
+  id               String    @id @default(cuid()) @map("_id")
   account_id       String?
   status           String
   start_time       DateTime  @default(now())
@@ -450,7 +450,7 @@ model PipelineRun {
 }
 
 model AuditLog {
-  id         String   @id @default(cuid())
+  id         String   @id @default(cuid()) @map("_id")
   account_id String
   product_id String
   type       String
@@ -463,7 +463,7 @@ model AuditLog {
 }
 
 model CatalogSetting {
-  id                 String   @id @default("default")
+  id                 String   @id @default("default") @map("_id")
   startPage          Int      @default(1)
   pages              Int      @default(3)
   oldPriceMultiplier Float    @default(2)
@@ -475,7 +475,7 @@ model CatalogSetting {
 }
 
 model ErrorLog {
-  id            String   @id @default(cuid())
+  id            String   @id @default(cuid()) @map("_id")
   account_id    String?
   product_id    String?
   severity      String
@@ -493,7 +493,7 @@ model ErrorLog {
 }
 
 model AppSetting {
-  id                       String   @id @default("default")
+  id                       String   @id @default("default") @map("_id")
   telegram_bot_token       String?
   telegram_chat_ids        String?
   notify_on_dashboard_runs Boolean  @default(false)

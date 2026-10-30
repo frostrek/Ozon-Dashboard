@@ -43,7 +43,7 @@ globalThis.fetch = async (url, init) => {
 async function main() {
   console.log("\x1b[1m\x1b[35m=== LAKME SHADE — 5-PRODUCT PROOF RUN ===\x1b[0m\n");
 
-  const all = getProducts({ status: "enriched", limit: 2000 });
+  const all = await getProducts({ status: "enriched", limit: 2000 });
 
   // Get 5 fresh Lakme shades
   const lakmePdps = all.filter(p => {

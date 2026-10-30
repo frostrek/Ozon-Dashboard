@@ -23,7 +23,7 @@ async function main() {
     conf.push.target_asin = "B0046VDP8C";
     fs.writeFileSync('./l98.conf.json', JSON.stringify(conf, null, 2));
 
-    const allProducts = getProducts({ status: 'enriched' });
+    const allProducts = await getProducts({ status: 'enriched' });
     const variants = allProducts.filter(p => p.parent_asin === "B0046VDP8C" || p.asin === "B0046VDP8C");
     
     console.log(`\nFound ${variants.length} matching variants for B0046VDP8C in local DB.`);
@@ -43,7 +43,7 @@ async function run() {
     let conf = JSON.parse(fs.readFileSync("./l98.conf.json", "utf8"));
     const targetAsin = conf.push.target_asin;
     
-    let dbProducts = getPushableProducts ? getPushableProducts() : (await import("./m-local-db.js")).getProducts({ status: 'enriched'});
+    let dbProducts = getPushableProducts ? await getPushableProducts() : await (await import("./m-local-db.js")).getProducts({ status: 'enriched'});
     
     dbProducts = dbProducts.filter(p => p.asin === targetAsin || p.parent_asin === targetAsin);
 

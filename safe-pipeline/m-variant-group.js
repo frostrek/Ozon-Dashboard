@@ -45,7 +45,7 @@ const supabaseAvailable = !!(SUPABASE_URL && SUPABASE_KEY);
  */
 async function fetchVariantChildren(parentAsin, limit = MAX_VARIANTS) {
   // 1. Try local SQLite (always available, even when Supabase quota exceeded)
-  const localRows = getVariantChildren(parentAsin, limit);
+  const localRows = await getVariantChildren(parentAsin, limit);
   if (localRows.length > 0) {
     console.log(`  📦 Loaded ${localRows.length} shade(s) from local SQLite.`);
     return localRows;
@@ -74,7 +74,7 @@ async function fetchVariantChildren(parentAsin, limit = MAX_VARIANTS) {
 
   // 3. Last resort: try parent ASIN directly from SQLite
   console.warn(`  ⚠️  No shade children found anywhere for ${parentAsin}. Trying parent itself.`);
-  const parent = getProductByAsin(parentAsin);
+  const parent = await getProductByAsin(parentAsin);
   if (parent) return [parent];
 
   throw new Error(`Parent ASIN ${parentAsin} not found in local SQLite or Supabase.`);
