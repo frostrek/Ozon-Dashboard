@@ -488,7 +488,7 @@ export default function NewRunForm({ accounts, activeRun = null }) {
       {stepId === 'count' ? (
         <div className="catalog-choice">
           <h2 className="catalog-question">How many products should this scrape collect?</h2>
-          <p className="field-help">Click the box, then type how many products to keep. The scrape stops after that many matches.</p>
+          <p className="field-help">Click the box, then type how many new products to keep. Products already in the catalog are skipped, and the scrape continues until this many new ones are found.</p>
           <label className="field" htmlFor="product-count">
             <span className="field-label">Number of products</span>
             <input

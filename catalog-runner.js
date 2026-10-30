@@ -435,23 +435,28 @@ async function collectProducts(modules) {
     log("info", `Loaded ${ready.length} saved product(s) without scraping.`);
     return ready;
   }
+  let knownAsins = new Set();
+  try {
+    knownAsins = await modules.db.getExistingAsins();
+  } catch {
+    log("warn", "Existing catalog products could not be checked, so this run cannot skip products it already saved.");
+  }
+  const known = new Set([...knownAsins].map((asin) => String(asin || "").trim().toUpperCase()).filter(Boolean));
+  const target = Number(job.maxProducts) || 0;
+  if (target) {
+    log("info", `Collecting ${target} new product(s). Products already in the catalog are skipped until that number is reached.`);
+  }
   log("info", `Scraping "${keyword}"${brand ? ` / ${brand}` : ""} for ${pages} page(s), starting at page ${startPage}.`);
   const rules = normalizeRules(job.scrapeRules);
   const scraped = await modules.scraper.runScraper(keyword, brand, rules.minRating, 2, 500, pages, startPage, {
-    maxProducts: Number(job.maxProducts) || 0,
+    maxProducts: target,
+    knownAsins: [...known],
     applyWeightGate: job.applyWeightGate !== false,
     weightGateGrams: gate(),
     weightBands: job.weightBands || null,
     scrapeRules: rules,
   });
   log("info", `Scrape returned ${scraped.length} product(s).`);
-  let knownAsins = new Set();
-  try {
-    knownAsins = await modules.db.getExistingAsins();
-  } catch {
-    log("warn", "Existing catalog products could not be checked, so this run cannot separate them yet.");
-  }
-  const known = new Set([...knownAsins].map((asin) => String(asin || "").toUpperCase()));
   let already = 0;
   for (const product of scraped) {
     const asin = String(product?.asin || "").toUpperCase();
@@ -461,6 +466,10 @@ async function collectProducts(modules) {
     }
   }
   if (already) log("info", `${already} product(s) were already in the catalog. They are listed separately from the new scrape.`);
+  const newCount = scraped.length - already;
+  if (target && newCount < target) {
+    log("warn", `The search ended with ${newCount} new product(s). The target was ${target}.`);
+  }
   const lastScrapedPage = startPage + pages - 1;
   try {
     await modules.db.saveScrapeProgress({

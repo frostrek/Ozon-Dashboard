@@ -560,6 +560,11 @@ function passesCustom(product, custom, allowUnknownWeight) {
 export async function runScraper(keyword = KEYWORD, brandFilter = null, minRating = MIN_RATING, concurrency = 2, delayMs = 500, maxPages = 3, startPage = 1, options = {}) {
   if (!scraperKeys().length) throw new Error("SCRAPER_API_KEY not set in .env");
   const productLimit = Number(options.maxProducts) > 0 ? Number(options.maxProducts) : 0;
+  const knownAsins = new Set(
+    (Array.isArray(options.knownAsins) ? options.knownAsins : [])
+      .map((asin) => String(asin || "").trim().toUpperCase())
+      .filter(Boolean)
+  );
   const applyWeightGate = options.applyWeightGate !== false;
   const weightLimit = Number(options.weightGateGrams) > 0 ? Number(options.weightGateGrams) : 500;
   const weightBands = options.weightBands && typeof options.weightBands === "object" ? options.weightBands : null;
@@ -583,18 +588,31 @@ export async function runScraper(keyword = KEYWORD, brandFilter = null, minRatin
   console.log(`Keyword    : "${keyword}"`);
   if (brandFilter) console.log(`Brand      : "${brandFilter}" (STRICT FILTER)`);
   console.log(`Pages      : ${startPage} to ${startPage + maxPages - 1} (Limit: ${maxPages})\n`);
-  if (productLimit) console.log(`Products   : stop after ${productLimit}\n`);
+  if (productLimit) console.log(`Products   : ${productLimit} new product(s). Already saved products are skipped.\n`);
   console.log(`Min rating : ${minRating}\n`);
+
+  const searchEligible = (item) => {
+    if (!item?.asin) return false;
+    if (skipSponsored && item._sponsored) return false;
+    const parsed = parseFloat(item.stars) || parseFloat(item.rating) || 0;
+    if (skipUnrated && !(parsed > 0)) return false;
+    const stars = parsed > 0 ? parsed : 5;
+    return stars >= ratingFloor;
+  };
 
   // Step 1: Search (Multiple Pages)
   console.log(`[1/3] Fetching pages...`);
   let allSearchItems = [];
   
   const SAFETY_PAGE_LIMIT = 50;
+  const plannedLastPage = startPage + maxPages - 1;
+  const lastPageAllowed = productLimit ? SAFETY_PAGE_LIMIT : plannedLastPage;
   let page = startPage;
   let consecutiveEmptyPages = 0;
+  let skippedKnown = 0;
+  const freshAsins = new Set();
 
-  while (page < startPage + maxPages) {
+  while (page <= lastPageAllowed) {
     // Safety limit
     if (page > SAFETY_PAGE_LIMIT) {
         console.log(`  ⚠️ Safety limit reached (${SAFETY_PAGE_LIMIT} pages). stopping.`);
@@ -620,23 +638,31 @@ export async function runScraper(keyword = KEYWORD, brandFilter = null, minRatin
         break;
       }
 
-      // Filter by Brand + Product Type
+      // Filter by Brand + Product Type. Already saved ASINs do not count toward the target.
       let matchesOnPage = 0;
+      let skippedOnPage = 0;
       for (const item of results) {
           const itemBrand = item.brand || "";
           const isBrandMatch = !cleanBrand || itemBrand.toLowerCase().includes(cleanBrand);
           const isTypeMatch = matchesType(item.name, keyword);
 
           if (isBrandMatch && isTypeMatch) {
+              const asinKey = String(item.asin || "").trim().toUpperCase();
+              if (productLimit && asinKey && knownAsins.has(asinKey)) {
+                  skippedKnown++;
+                  skippedOnPage++;
+                  continue;
+              }
               allSearchItems.push(item);
               matchesOnPage++;
+              if (asinKey && searchEligible(item)) freshAsins.add(asinKey);
           }
       }
 
-      process.stdout.write(`Found ${matchesOnPage} matching items.\n`);
-      console.log(`Page ${page} -> ${matchesOnPage} products`);
+      process.stdout.write(`Found ${matchesOnPage} matching items${skippedOnPage ? `, skipped ${skippedOnPage} already saved` : ""}.\n`);
+      console.log(`Page ${page} -> ${matchesOnPage} new products${skippedOnPage ? ` (${skippedOnPage} already saved)` : ""}`);
       
-      if (matchesOnPage === 0) {
+      if (matchesOnPage === 0 && skippedOnPage === 0) {
         consecutiveEmptyPages++;
         if (consecutiveEmptyPages >= 3) {
             console.log(`  🛑 Stopping early: 3 consecutive pages with 0 matches.`);
@@ -644,6 +670,14 @@ export async function runScraper(keyword = KEYWORD, brandFilter = null, minRatin
         }
       } else {
         consecutiveEmptyPages = 0;
+      }
+
+      if (productLimit && freshAsins.size >= productLimit) {
+        console.log(`  Target of ${productLimit} new product(s) found. Stopping search.`);
+        break;
+      }
+      if (productLimit && page >= plannedLastPage && freshAsins.size < productLimit) {
+        console.log(`  ${freshAsins.size}/${productLimit} new products after the requested pages. Checking the next page.`);
       }
       
       // Jitter delay between pages (v39 Hardening)
@@ -670,14 +704,29 @@ export async function runScraper(keyword = KEYWORD, brandFilter = null, minRatin
   const uniqueEligible = Array.from(uniqueAsins.values());
 
   console.log(`  Unique eligible items        : ${uniqueEligible.length}`);
+  if (skippedKnown) console.log(`  Already in the catalog, skipped : ${skippedKnown}`);
+  if (productLimit && uniqueEligible.length < productLimit) {
+    console.log(`  Search ended with ${uniqueEligible.length}/${productLimit} new products.`);
+  }
   console.log(`  Total Scraped -> ${uniqueEligible.length} products\n`);
 
   if (uniqueEligible.length === 0) return [];
 
   // Step 3: Detail Discovery & Fetching
-  const detailQueue = productLimit ? uniqueEligible.slice(0, productLimit) : uniqueEligible;
+  // Keep every new match. The loop stops once the target number of accepted products is reached,
+  // so a weight or stock skip can be replaced by the next product.
+  const detailQueue = uniqueEligible;
   console.log(`[2/3] Fetching detail pages (concurrency: ${concurrency})...`);
   const products = [];
+  const acceptProduct = (product) => {
+    const asin = String(product?.asin || "").trim().toUpperCase();
+    if (productLimit && asin && knownAsins.has(asin)) {
+      console.warn(`  ⏭️  SKIP ${asin}: already in the catalog`);
+      return false;
+    }
+    products.push(product);
+    return true;
+  };
   const masterSet = new Set(detailQueue.map(i => i.asin));
   let queue = [...detailQueue];
   let fetched = 0, failed = 0;
@@ -767,14 +816,14 @@ export async function runScraper(keyword = KEYWORD, brandFilter = null, minRatin
                 };
 
                 const sanitizedVariant = deepSanitizeProduct(variantProduct);
-                products.push(sanitizedVariant);
+                if (!acceptProduct(sanitizedVariant)) continue;
                 console.log(`    ↳ Shade: ${v.asin} | "${vValue}" | Images: ${variantImages.length} (Swatch: ${v.image ? v.image.slice(-30) : 'n/a'})`);
                 variantsAdded++;
               }
             } else if (isCosmetic || !makePacks) {
                 if (isCosmetic) console.log(`  ⚠️  ${merged.name?.slice(0,50)} — Uploading one listing`);
                 else console.log(`  📦 ${merged.asin}: quantity packs are off, keeping one unit`);
-                products.push(deepSanitizeProduct(merged));
+                acceptProduct(deepSanitizeProduct(merged));
             } else {
                 // Non-cosmetic -> Generate quantity packs!
                 const w = merged.weight_grams;
@@ -822,7 +871,7 @@ export async function runScraper(keyword = KEYWORD, brandFilter = null, minRatin
                         }
                     }
                     const sanitized = deepSanitizeProduct(packVariant);
-                    products.push(sanitized);
+                    if (!acceptProduct(sanitized)) continue;
                 }
             }
             fetched++;
