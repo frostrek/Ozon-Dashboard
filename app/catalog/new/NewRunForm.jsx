@@ -369,8 +369,8 @@ export default function NewRunForm({ accounts, activeRun = null }) {
           <Link href={`/catalog/runs/${activeRun.runId}`}>{activeRun.title}</Link>
           {' '}
           {sameAccount
-            ? 'Start stays off for this account until that run finishes.'
-            : 'Only one catalog run can be active, so Start stays off until it finishes.'}
+            ? 'Start stays off for this account until that run finishes. Open it and press Stop run if it is stuck.'
+            : 'Only one catalog run can be active. Open it and press Stop run if it is stuck.'}
         </p>
       ) : null}
 

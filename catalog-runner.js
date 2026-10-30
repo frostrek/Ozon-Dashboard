@@ -187,6 +187,7 @@ function hookConsole() {
 }
 
 function writeStatus(patch = {}) {
+  if (existsSync(path.join(RUNS_DIR, `${job.runId}.cancel`))) process.exit(0);
   Object.assign(state, patch);
   state.updatedAt = new Date().toISOString();
   logDirty = false;

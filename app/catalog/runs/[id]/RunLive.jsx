@@ -261,11 +261,17 @@ export default function RunLive({ initial, accounts = [], otherActive = null }) 
         body: JSON.stringify({ action: 'account', accountId }),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
+      if (!response.ok || !data?.status) {
         setActionError(data.error || 'The push account could not be changed.');
         return;
       }
-      if (data?.runId) setRun(data);
+      const chosen = accounts.find((account) => account.id === accountId);
+      setRun((current) => ({
+        ...current,
+        ...data,
+        accountId,
+        accountName: data.accountName || chosen?.name || current.accountName,
+      }));
     } catch {
       setActionError('The push account could not be changed.');
     } finally {
@@ -385,6 +391,29 @@ export default function RunLive({ initial, accounts = [], otherActive = null }) 
     setSelected(rows.filter((item) => !item.previouslySaved && !item.held && item.uiStatus !== 'pushed').map((item) => item.asin));
   }
 
+  async function stopRun() {
+    if (!window.confirm('Stop this run? Products already scraped stay on this page.')) return;
+    setBusy('stop');
+    setActionError('');
+    try {
+      const response = await fetch(`/api/catalog-jobs/${initial.runId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'stop' }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.runId) {
+        setActionError(data.error || 'This run could not be stopped.');
+        return;
+      }
+      setRun((current) => ({ ...current, ...data, accountName: data.accountName || current.accountName }));
+    } catch {
+      setActionError('This run could not be stopped.');
+    } finally {
+      setBusy('');
+    }
+  }
+
   async function deleteRun() {
     if (!window.confirm('Delete this catalog run? Saved products stay in Scraped products.')) return;
     setBusy('delete-run');
@@ -448,6 +477,11 @@ export default function RunLive({ initial, accounts = [], otherActive = null }) 
               </select>
             </label>
             <Link className="button-secondary" href="/catalog">View all runs</Link>
+            {jobActive ? (
+              <button type="button" className="button-secondary" disabled={busy === 'stop'} onClick={stopRun}>
+                {busy === 'stop' ? 'Stopping...' : 'Stop run'}
+              </button>
+            ) : null}
             <button type="button" className="button-secondary" disabled={jobActive || busy === 'delete-run'} onClick={deleteRun}>
               {busy === 'delete-run' ? 'Deleting...' : 'Delete run'}
             </button>
