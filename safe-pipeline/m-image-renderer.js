@@ -262,7 +262,7 @@ export async function uploadRenderedImage(supabaseUrl, supabaseKey, asin, slot, 
   const fileName = `${asin}_ru_${slot}.jpg`;
 
   // ── BACKEND 1: Supabase Storage ─────────────────────────────────────────
-  if (supabaseUrl && supabaseKey && !supabaseUploadCircuitOpen) {
+  if (process.env.SUPABASE_SYNC === "1" && supabaseUrl && supabaseKey && !supabaseUploadCircuitOpen) {
     try {
       const storagePath = `ru-images/${asin}/${fileName}`;
       const res = await fetch(`${supabaseUrl}/storage/v1/object/ozon-images/${storagePath}`, {

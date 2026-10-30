@@ -560,6 +560,18 @@ function passesCustom(product, custom, allowUnknownWeight) {
 export async function runScraper(keyword = KEYWORD, brandFilter = null, minRating = MIN_RATING, concurrency = 2, delayMs = 500, maxPages = 3, startPage = 1, options = {}) {
   if (!scraperKeys().length) throw new Error("SCRAPER_API_KEY not set in .env");
   const productLimit = Number(options.maxProducts) > 0 ? Number(options.maxProducts) : 0;
+  const shouldStop = () => typeof options.shouldStop === "function" && options.shouldStop();
+  const outputFile = options.outputFile || "m1-m3-output.json";
+  const pause = async (ms) => {
+    let left = ms;
+    while (left > 0) {
+      if (shouldStop()) return true;
+      const wait = Math.min(500, left);
+      await new Promise((resolve) => setTimeout(resolve, wait));
+      left -= wait;
+    }
+    return shouldStop();
+  };
   const knownAsins = new Set(
     (Array.isArray(options.knownAsins) ? options.knownAsins : [])
       .map((asin) => String(asin || "").trim().toUpperCase())
@@ -613,6 +625,10 @@ export async function runScraper(keyword = KEYWORD, brandFilter = null, minRatin
   const freshAsins = new Set();
 
   while (page <= lastPageAllowed) {
+    if (shouldStop()) {
+      console.log("  Scrape stopped.");
+      break;
+    }
     // Safety limit
     if (page > SAFETY_PAGE_LIMIT) {
         console.log(`  ⚠️ Safety limit reached (${SAFETY_PAGE_LIMIT} pages). stopping.`);
@@ -682,7 +698,10 @@ export async function runScraper(keyword = KEYWORD, brandFilter = null, minRatin
       
       // Jitter delay between pages (v39 Hardening)
       const pageDelay = 2000 + Math.floor(Math.random() * 5000);
-      await new Promise(r => setTimeout(r, pageDelay));
+      if (await pause(pageDelay)) {
+        console.log("  Scrape stopped.");
+        break;
+      }
       page++;
     } catch (err) {
       if (err.code === "SCRAPER_API_CREDITS_EXHAUSTED" || String(err.message || "").includes("no credits left")) throw err;
@@ -690,6 +709,8 @@ export async function runScraper(keyword = KEYWORD, brandFilter = null, minRatin
       break;
     }
   }
+
+  if (shouldStop()) return [];
 
   const eligible = allSearchItems.filter(r => {
       if (!r.asin) return false;
@@ -733,6 +754,10 @@ export async function runScraper(keyword = KEYWORD, brandFilter = null, minRatin
 
   // We process the queue which may grow if variants are found
   for (let i = 0; i < queue.length; ) {
+    if (shouldStop()) {
+      console.log("  Scrape stopped.");
+      break;
+    }
     if (productLimit && products.length >= productLimit) break;
     const take = productLimit ? Math.min(concurrency, productLimit - products.length) : concurrency;
     if (take <= 0) break;
@@ -894,12 +919,12 @@ export async function runScraper(keyword = KEYWORD, brandFilter = null, minRatin
       }
     }
     process.stdout.write(`\r  Progress: ${fetched + failed}/${queue.length} (${fetched} ok, ${failed} failed)`);
-    if (i + concurrency < queue.length) await new Promise(r => setTimeout(r, delayMs));
+    if (i + concurrency < queue.length && await pause(delayMs)) break;
   }
   process.stdout.write("\n");
 
-  await Bun.write("m1-m3-output.json", JSON.stringify(products, null, 2));
-  console.log(`\nSaved → m1-m3-output.json (${products.length} products)`);
+  await Bun.write(outputFile, JSON.stringify(products, null, 2));
+  console.log(`\nSaved → ${outputFile} (${products.length} products)`);
 
   return products;
 }

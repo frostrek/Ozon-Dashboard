@@ -1,11 +1,8 @@
 #!/usr/bin/env bun
 
 /**
- * M5 — Insert + dedup  (Dual-mode: SQLite PRIMARY + Supabase OPTIONAL)
- *
- * Strategy:
- *   1. Always write to MongoDB — never fails due to a cloud quota.
- *   2. Attempt Supabase sync. If quota/error → log warning, continue normally.
+ * M5 — Insert + dedup. Products are stored in MongoDB.
+ * Supabase is not called. Set SUPABASE_SYNC=1 only if a separate cloud copy is required.
  *
  * Brand name cleaning (Amazon returns junk like "Visit the X Store" / "Brand: X"):
  *   "Visit the X Store" → "X"
@@ -21,34 +18,7 @@
 
 import { upsertProducts, getExistingAsins, countProducts, fillMissingImages } from "./m-local-db.js";
 
-const SUPABASE_URL = Bun.env.SUPABASE_URL ?? "";
-const SUPABASE_KEY = Bun.env.SUPABASE_SERVICE_KEY ?? "";
 const INPUT_FILE   = "m1-m3-output.json";
-
-// Supabase is OPTIONAL — pipeline works without it
-const supabaseAvailable = !!(SUPABASE_URL && SUPABASE_KEY);
-
-// ─── Supabase REST helper (optional) ─────────────────────────────────────────
-
-async function supabaseUpsert(table, rows) {
-  if (!supabaseAvailable) throw new Error("Supabase credentials not set");
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?on_conflict=asin`, {
-    method: "POST",
-    headers: {
-      apikey: SUPABASE_KEY,
-      Authorization: `Bearer ${SUPABASE_KEY}`,
-      "Content-Type": "application/json",
-      Prefer: "resolution=ignore-duplicates,return=representation",
-    },
-    body: JSON.stringify(rows),
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Supabase error ${res.status}: ${err.slice(0, 300)}`);
-  }
-  return await res.json();
-}
 
 // ─── Brand name cleaner ───────────────────────────────────────────────────────
 // Amazon sometimes returns storefront names instead of clean brand names.
@@ -134,7 +104,7 @@ export async function insertProductsToDb(rawProducts) {
   const enriched     = products.filter(p => p.scrape_status === "enriched");
   const blockedWeight = products.filter(p => p.scrape_status === "blocked_weight");
 
-  console.log("=== M5 — Insert + Dedup (SQLite primary / Supabase optional) ===");
+  console.log("=== M5 — Insert + Dedup (MongoDB) ===");
   console.log(`  enriched       : ${enriched.length} (pushable to Ozon)`);
   console.log(`  blocked_weight : ${blockedWeight.length} (no weight or >= 500g)\n`);
 
@@ -146,7 +116,7 @@ export async function insertProductsToDb(rawProducts) {
   console.log();
 
   // ── STEP 1: SQLite (always) ──────────────────────────────────────────────────
-  console.log("[1/3] Writing to MongoDB...");
+  console.log("[1/2] Writing to MongoDB...");
   let sqliteInserted = 0;
   try {
     const existingAsins = await getExistingAsins();
@@ -174,58 +144,8 @@ export async function insertProductsToDb(rawProducts) {
   const sqliteTotal = await countProducts();
   console.log(`  📦 MongoDB total: ${sqliteTotal} products`);
 
-  // ── STEP 2: Supabase sync (optional) ────────────────────────────────────────
-  console.log("\n[2/3] Syncing to Supabase (optional)...");
-  let supabaseInserted = 0;
-  let supabaseError = null;
-
-  if (!supabaseAvailable) {
-    console.log("  ⚠️  Supabase credentials not set — skipping cloud sync.");
-  } else {
-    try {
-      // Fetch cloud ASINs for dedup
-      const cloudRes = await fetch(
-        `${SUPABASE_URL}/rest/v1/products?select=asin`,
-        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
-          signal: AbortSignal.timeout(15_000) }
-      );
-      if (!cloudRes.ok) throw new Error(`Supabase status ${cloudRes.status}`);
-      const cloudData = await cloudRes.json();
-      const cloudAsins = new Set((cloudData || []).map(r => r.asin));
-
-      const cloudToInsert = products.filter(p => !cloudAsins.has(p.asin));
-      if (cloudToInsert.length > 0) {
-        const inserted = await supabaseUpsert("products", cloudToInsert);
-        supabaseInserted = inserted.length;
-        console.log(`  ✅ Supabase: synced ${supabaseInserted} new rows.`);
-      } else {
-        console.log("  ✅ Supabase: already up-to-date.");
-      }
-    } catch (e) {
-      supabaseError = e.message;
-      const isQuota = e.message.includes("storage_size_quota") || e.message.includes("quota") || e.message.includes("limit") || e.message.includes("413");
-      if (isQuota) {
-        console.log(`  ⚠️  Supabase quota exceeded — data safely stored in local SQLite.`);
-      } else {
-        console.log(`  ⚠️  Supabase sync failed (${e.message.slice(0, 80)}) — data safely stored in local SQLite.`);
-      }
-    }
-  }
-
-  // ── STEP 3: Verify ──────────────────────────────────────────────────────────
-  console.log("\n[3/3] Summary");
+  console.log("\n[2/2] Summary");
   console.log(`  MongoDB catalog: ${sqliteTotal} total products`);
-  if (supabaseAvailable && !supabaseError) {
-    try {
-      const countRes = await fetch(`${SUPABASE_URL}/rest/v1/products?select=count`,
-        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, Prefer: "count=exact" },
-          signal: AbortSignal.timeout(10_000) });
-      const cloudTotal = countRes.headers.get("content-range")?.split("/")?.[1] ?? "?";
-      console.log(`  Supabase cloud: ${cloudTotal} total products`);
-    } catch {}
-  } else if (supabaseError) {
-    console.log(`  Supabase cloud: unavailable (${supabaseError.slice(0, 60)})`);
-  }
 
   console.log("\n=== Gate 2 checklist ===");
   console.log("  [ ] SQLite total matches expected count");

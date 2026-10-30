@@ -107,6 +107,7 @@ export default function NewRunForm({ accounts, activeRun = null }) {
   const [settingsReady, setSettingsReady] = useState(false);
   const [error, setError] = useState('');
   const [starting, setStarting] = useState(false);
+  const [stoppingId, setStoppingId] = useState('');
   const searchSerial = useRef(0);
 
   useEffect(() => {
@@ -293,6 +294,29 @@ export default function NewRunForm({ accounts, activeRun = null }) {
     startRun(event);
   }
 
+  async function stopActive(run) {
+    if (!window.confirm(`Stop “${run.title}”? Products already scraped stay on that run.`)) return;
+    setStoppingId(run.runId);
+    setError('');
+    try {
+      const response = await fetch(`/api/catalog-jobs/${run.runId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'stop' }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(data.error || 'That run could not be stopped.');
+        return;
+      }
+      router.refresh();
+    } catch {
+      setError('That run could not be stopped.');
+    } finally {
+      setStoppingId('');
+    }
+  }
+
   async function startRun(event) {
     event?.preventDefault();
     setError('');
@@ -360,10 +384,16 @@ export default function NewRunForm({ accounts, activeRun = null }) {
       {activeRun ? (
         <p className="catalog-live" role="status">
           <span className="catalog-spinner" aria-hidden="true" />
-          Run in progress for {activeRun.accountName}.{' '}
           <Link href={`/catalog/runs/${activeRun.runId}`}>{activeRun.title}</Link>
-          {' '}
-          You can start another run while this one is still going.
+          {' '}is still scraping for {activeRun.accountName}. This form starts a separate run and does not wait for that one.
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={stoppingId === activeRun.runId}
+            onClick={() => stopActive(activeRun)}
+          >
+            {stoppingId === activeRun.runId ? 'Stopping...' : 'Stop that run'}
+          </button>
         </p>
       ) : null}
 

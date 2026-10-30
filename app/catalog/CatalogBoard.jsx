@@ -79,9 +79,10 @@ function CatalogTabs({ current }) {
   );
 }
 
-export default function CatalogBoard({ runs, active }) {
+export default function CatalogBoard({ runs }) {
   const router = useRouter();
   const [deleting, setDeleting] = useState('');
+  const [stopping, setStopping] = useState('');
   const [search, setSearch] = useState('');
   const [account, setAccount] = useState('all');
   const [status, setStatus] = useState('all');
@@ -119,6 +120,29 @@ export default function CatalogBoard({ runs, active }) {
     document.addEventListener('pointerdown', close);
     return () => document.removeEventListener('pointerdown', close);
   }, []);
+
+  async function stopRun(run) {
+    if (!window.confirm(`Stop “${run.title}”? Products already scraped stay on the run.`)) return;
+    setStopping(run.runId);
+    try {
+      const response = await fetch(`/api/catalog-jobs/${run.runId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'stop' }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        window.alert(data.error || 'This run could not be stopped.');
+        return;
+      }
+      setMenuId('');
+      router.refresh();
+    } catch {
+      window.alert('This run could not be stopped.');
+    } finally {
+      setStopping('');
+    }
+  }
 
   async function deleteRun(run) {
     if (run.status === 'pending' || run.status === 'running') return;
@@ -183,12 +207,16 @@ export default function CatalogBoard({ runs, active }) {
       </header>
       <CatalogTabs current="runs" />
 
-      {active ? (
-        <p className="catalog-live" role="status">
+      {runs.filter((run) => run.status === 'pending' || run.status === 'running').map((run) => (
+        <p className="catalog-live" role="status" key={run.runId}>
           <span className="catalog-spinner" aria-hidden="true" />
-          Run in progress for {active.accountName}. <Link href={`/catalog/runs/${active.runId}`}>{active.title}</Link>
+          <Link href={`/catalog/runs/${run.runId}`}>{run.title}</Link>
+          {' '}is scraping for {run.accountName}. A new run can start while this one is going.
+          <button type="button" className="button-secondary" disabled={stopping === run.runId} onClick={() => stopRun(run)}>
+            {stopping === run.runId ? 'Stopping...' : 'Stop'}
+          </button>
         </p>
-      ) : null}
+      ))}
 
       <section className="catalog-stats" aria-label="Run totals">
         <article>
@@ -266,6 +294,11 @@ export default function CatalogBoard({ runs, active }) {
                     {menuId === run.runId ? (
                       <div className="catalog-menu-pop" role="menu">
                         <Link href={`/catalog/runs/${run.runId}`} role="menuitem">Open run</Link>
+                        {run.status === 'pending' || run.status === 'running' ? (
+                          <button type="button" role="menuitem" disabled={stopping === run.runId} onClick={() => stopRun(run)}>
+                            {stopping === run.runId ? 'Stopping...' : 'Stop run'}
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           role="menuitem"

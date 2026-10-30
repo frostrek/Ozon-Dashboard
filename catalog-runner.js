@@ -187,14 +187,19 @@ function hookConsole() {
   }
 }
 
+function cancelled() {
+  return existsSync(path.join(RUNS_DIR, `${job.runId}.cancel`));
+}
+
 function writeStatus(patch = {}) {
-  if (existsSync(path.join(RUNS_DIR, `${job.runId}.cancel`))) process.exit(0);
+  if (cancelled()) process.exit(0);
   Object.assign(state, patch);
   state.updatedAt = new Date().toISOString();
   logDirty = false;
   mkdirSync(RUNS_DIR, { recursive: true });
   const temp = `${statusPath}.tmp`;
   writeFileSync(temp, JSON.stringify(state, null, 2));
+  if (cancelled()) process.exit(0);
   renameSync(temp, statusPath);
   saveCatalogRun(job.runId, { status: JSON.parse(JSON.stringify(state)) }).catch(() => {});
 }
@@ -481,6 +486,8 @@ async function collectProducts(modules) {
     weightGateGrams: gate(),
     weightBands: job.weightBands || null,
     scrapeRules: rules,
+    outputFile: `m1-m3-output-${job.runId}.json`,
+    shouldStop: cancelled,
   });
   log("info", `Scrape returned ${scraped.length} product(s).`);
   let already = 0;
@@ -520,14 +527,7 @@ async function collectProducts(modules) {
     if (state.blocked.length) {
       log("warn", `${state.blocked.length} product(s) are outside the weights you chose or have no price.`);
     }
-    const storageLog = state.logs.map((entry) => entry.message).join(" ");
-    if (/supabase sync failed|supabase quota|supabase cloud: unavailable/i.test(storageLog)) {
-      state.storageNote = "Supabase is unavailable. Products were saved in the local catalog database, and this run continued.";
-    } else if (/supabase credentials not set/i.test(storageLog)) {
-      state.storageNote = "Cloud sync is off. Products were saved in the local catalog database.";
-    } else {
-      state.storageNote = "Products were saved in the local catalog database.";
-    }
+    state.storageNote = "";
   } catch {
     state.storageNote = "The local catalog database could not take this batch. The products stayed in memory and the run continued.";
     state.errors.push({ asin: "", reason: state.storageNote });
@@ -722,6 +722,7 @@ async function main() {
   const previousStatus = continuing ? loadExisting() : "";
   hookConsole();
   const timer = setInterval(() => {
+    if (cancelled()) process.exit(0);
     if (logDirty) writeStatus();
   }, 2000);
   timer.unref();

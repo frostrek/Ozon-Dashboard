@@ -220,8 +220,8 @@ function validateTitle(title) {
 let supabaseCircuitOpen = false;
 
 async function rehostImage(asin, idx, url) {
-  // Fast path: circuit already open → skip everything instantly
-  if (supabaseCircuitOpen || !supabase) return url;
+  // Catalog images are hosted later. Supabase is off unless SUPABASE_SYNC=1.
+  if (process.env.SUPABASE_SYNC !== "1" || supabaseCircuitOpen || !supabase) return url;
 
   try {
     // Fetch high-res image from Amazon
@@ -615,7 +615,7 @@ export async function pushProductToOzon(p, inrUsdRate, options) {
 
   // 3. Image Re-hosting (Mandatory Hardening)
   const imagesToProcess = Array.isArray(p.image_urls) ? p.image_urls.slice(0, 10) : [];
-  console.log(`  🕒 Re-hosting ${imagesToProcess.length} images to Supabase...`);
+  console.log(`  🕒 Preparing ${imagesToProcess.length} image(s)...`);
   const rehostedImages = (await Promise.all(
     imagesToProcess.map(async (url, i) => {
       return await rehostImage(p.asin, i, url, 4);
