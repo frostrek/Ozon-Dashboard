@@ -1,0 +1,45 @@
+# Ozon Fulfillment Dashboard — deploy from GitHub main
+# MongoDB stays on Atlas; set connection strings in Render env (sync: false).
+
+services:
+  - type: web
+    name: ozon-dashboard
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    autoDeploy: true
+    buildCommand: npm ci && npx prisma generate && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "20"
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=4096
+      - key: DATABASE_URL
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: DASHBOARD_USERNAME
+        sync: false
+      - key: DASHBOARD_PASSWORD
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: SCRAPER_API_KEY
+        sync: false
+      - key: SCRAPER_API_KEYS
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_ALLOWED_CHAT_IDS
+        sync: false
