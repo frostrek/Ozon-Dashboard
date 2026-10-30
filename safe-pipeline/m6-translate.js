@@ -14,7 +14,7 @@ const CACHE_FILE  = path.join(process.cwd(), "translate-cache.json");
 
 // ─── AI Config (Groq primary) ─────────────────────────────────────────────────
 const GROQ_API_KEY  = Bun.env.GROQ_API_KEY;
-const GROQ_MODEL    = "llama-3.1-8b-instant";
+const GROQ_MODEL    = "llama-3.3-70b-versatile";
 
 // ─── Cache ────────────────────────────────────────────────────────────────────
 
@@ -311,7 +311,7 @@ export async function translateStrings(strings) {
 async function callAI(systemPrompt, userPrompt) {
   // 1. Try Groq API first (Paid/High Quality) - 3 attempts with backoff
   if (GROQ_API_KEY) {
-    console.log("  🤖 Attempting Groq API (llama-3.1-8b-instant)...");
+    console.log(`  🤖 Attempting Groq API (${GROQ_MODEL})...`);
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -364,6 +364,8 @@ async function callAI(systemPrompt, userPrompt) {
 // Ozon-compliant Russian title/annotation purely from product data fields.
 
 const PRODUCT_TYPE_MAP = {
+  "lipstick": "Помада", "lip gloss": "Блеск для губ", "lip balm": "Бальзам для губ",
+  "foundation": "Тональный крем", "concealer": "Консилер", "mascara": "Тушь",
   "shampoo": "Шампунь", "conditioner": "Кондиционер", "serum": "Сыворотка",
   "oil": "Масло", "hair oil": "Масло для волос", "face wash": "Гель для умывания",
   "cream": "Крем", "lotion": "Лосьон", "gel": "Гель", "mask": "Маска",
@@ -390,24 +392,35 @@ function buildTemplateFallback(product) {
     if (name.includes(en)) { productType = ru; break; }
   }
 
-  // Get first ingredient (up to 2 words)
-  const ingredientRaw = (product.ingredients || "").split(/[,;]/)[0].trim().slice(0, 40);
-
-  // Get size
+  // Get size. Keep the brand in Latin and the rest in Russian so the title stays mostly Cyrillic.
   const sizeMatch = (product.name || "").match(/(\d+)\s*(ml|мл|g|г|oz)/i);
-  const size = sizeMatch ? `${sizeMatch[1]} ${sizeMatch[2].toLowerCase().replace('g','г').replace('ml','мл')}` : (product.net_quantity || "");
+  const size = sizeMatch ? `${sizeMatch[1]} ${sizeMatch[2].toLowerCase().replace('g','г').replace('ml','мл')}` : "";
 
-  // Build title: Type + Brand + [Ingredient], [Size]
-  const title = `${productType} ${brand}${ingredientRaw ? ` с ${ingredientRaw.toLowerCase()}` : ''}, ${size || 'для всех типов'}`;
+  const title = `${productType} ${brand}${size ? `, ${size}` : ""}, для ежедневного ухода`;
 
 
   // Build annotation
-  const bullets = Array.isArray(product.feature_bullets) ? product.feature_bullets.slice(0, 2) : [];
-  const annotation = `${brand} предлагает ${productType.toLowerCase()} на основе натуральных компонентов.` +
-    (bullets.length > 0 ? ` Средство ${bullets[0].toLowerCase().slice(0, 100)}.` : '') +
-    ` Подходит для регулярного использования.`;
+  const annotation = `${brand} предлагает ${productType.toLowerCase()} на основе натуральных компонентов. Подходит для регулярного использования.`;
 
   return { title: title.slice(0, 150), annotation: annotation.slice(0, 600) };
+}
+
+function cyrillicRatio(text) {
+  const letters = String(text || "").replace(/[^a-zA-Zа-яА-ЯёЁ]/g, "");
+  if (!letters) return 1;
+  const cyrillic = letters.match(/[а-яА-ЯёЁ]/g) || [];
+  return cyrillic.length / letters.length;
+}
+
+function forceRussianTitle(product, current) {
+  let title = String(current || "").replace(/\s+/g, " ").trim();
+  if (title && cyrillicRatio(title) >= 0.5) return title.slice(0, 200);
+  const fallback = buildTemplateFallback(product).title;
+  title = fallback;
+  if (cyrillicRatio(title) < 0.5) {
+    title = `${title}, подходит для регулярного использования`.replace(/\s+/g, " ").trim();
+  }
+  return title.slice(0, 200);
 }
 
 // ─── Content Generators ───────────────────────────────────────────────────────
@@ -978,7 +991,7 @@ export async function translateProduct(product, typeLabel = "") {
   // ─── Shade/Variant suffix for cosmetic children ──────────────────────────────
   // When variant_value is set (e.g. "Ivory", "120 Classic Ivory"), append it to
   // the title so each child listing has a unique, descriptive name on Ozon.
-  let finalTitle = title_ru;
+  let finalTitle = forceRussianTitle(product, title_ru);
   if (product.variant_value && product.variant_type) {
     const shadeLabel = String(product.variant_value).trim().slice(0, 40);
     // Only append if not already in the title (case-insensitive check)

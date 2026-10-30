@@ -2,7 +2,7 @@
 
 /**
  * M10b — Smart Amazon → Ozon Attribute Mapper (HARDENED for Skincare)
- * Primary AI: Groq (llama-3.1-8b-instant)
+ * Primary AI: Groq (llama-3.3-70b-versatile)
  */
 
 // ─── Token-Optimized Corpus ───────────────────────────────────────────────────
@@ -334,7 +334,7 @@ Return {"map":[...]} with every single ID filled. Missing IDs = failure.`;
 
   // 1. Try Groq API first (Paid/High Quality)
   if (GROQ_API_KEY) {
-    console.log(`  🤖 Attempting Groq API (llama-3.1-8b-instant) to map attributes for [${product.asin}]...`);
+    console.log(`  🤖 Attempting Groq API (llama-3.3-70b-versatile) to map attributes for [${product.asin}]...`);
     // Retry on 429 rate-limit or network errors before falling back to local
     let attempt = 0;
     const MAX_ATTEMPTS = 4;
@@ -348,7 +348,7 @@ Return {"map":[...]} with every single ID filled. Missing IDs = failure.`;
             "Authorization": `Bearer ${GROQ_API_KEY}`
           },
           body: JSON.stringify({
-            model: "llama-3.1-8b-instant",
+            model: "llama-3.3-70b-versatile",
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt }
@@ -648,7 +648,7 @@ async function processAiJson(aiJson, ozonAttrs, catId, typeId, ozonPostFn, produ
 export async function mapAmazonToOzon(product, ozonAttrs, catId, typeId, ozonPostFn, typeLabel = "") {
   // Log which AI backend will actually be used
   if (GROQ_API_KEY) {
-    console.log(`  🤖 Using Groq API (llama-3.1-8b-instant) to map attributes for [${product.asin}]...`);
+    console.log(`  🤖 Using Groq API (llama-3.3-70b-versatile) to map attributes for [${product.asin}]...`);
   } else {
     console.log(`  🤖 Using Local Ollama AI to map attributes for [${product.asin}]...`);
   }

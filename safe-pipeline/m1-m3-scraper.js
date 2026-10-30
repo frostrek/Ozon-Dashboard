@@ -732,9 +732,12 @@ export async function runScraper(keyword = KEYWORD, brandFilter = null, minRatin
   let fetched = 0, failed = 0;
 
   // We process the queue which may grow if variants are found
-  for (let i = 0; i < queue.length; i += concurrency) {
+  for (let i = 0; i < queue.length; ) {
     if (productLimit && products.length >= productLimit) break;
-    const batch = queue.slice(i, i + concurrency);
+    const take = productLimit ? Math.min(concurrency, productLimit - products.length) : concurrency;
+    if (take <= 0) break;
+    const batch = queue.slice(i, i + take);
+    i += batch.length;
     const results = await Promise.allSettled(batch.map(item => fetchJson(buildDetailUrl(item.asin), item.asin)));
 
     for (let j = 0; j < batch.length; j++) {

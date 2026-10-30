@@ -718,7 +718,7 @@ async function pushAll(modules, products, { fromCheckpoint = false, retry = fals
 }
 
 async function main() {
-  const continuing = Boolean(job.resume) || ["push", "retry", "tasks"].includes(job.action);
+  const continuing = Boolean(job.resume) || ["push", "retry", "tasks", "remove"].includes(job.action);
   const previousStatus = continuing ? loadExisting() : "";
   hookConsole();
   const timer = setInterval(() => {
@@ -728,9 +728,31 @@ async function main() {
   writeStatus({ status: "running", currentStep: "starting", action: job.action || "full" });
   assertReady();
   if (!existsSync(SAFE_ROOT)) fail("starting", "The safe-pipeline folder was not found inside this dashboard.");
-  if (job.action !== "tasks") assertCategory();
+  if (job.action !== "tasks" && job.action !== "remove") assertCategory();
   process.chdir(SAFE_ROOT);
   const modules = await loadModules();
+
+  if (job.action === "remove") {
+    const asin = String(job.asin || job.asins?.[0] || "").trim().toUpperCase();
+    if (!asin) fail("remove", "No product was selected to delete.");
+    const result = await modules.push.ozonPost("/v2/products/delete", { products: [{ offer_id: asin }] });
+    const row = result.json?.status?.find?.((item) => String(item.offer_id || "").toUpperCase() === asin) || result.json?.status?.[0];
+    if (!result.ok || row?.is_deleted === false) {
+      const reason = row?.error || result.json?.message || result.text || "Ozon did not delete this product.";
+      fail("remove", `${asin}: ${String(reason).slice(0, 240)}`);
+    }
+    const key = asin.toUpperCase();
+    if (!state.deletedAsins.some((value) => String(value).toUpperCase() === key)) state.deletedAsins.push(asin);
+    state.pushedAsins = state.pushedAsins.filter((value) => String(value).toUpperCase() !== key);
+    const restore = ["failed", "completed", "awaiting_confirm"].includes(previousStatus) ? previousStatus : "completed";
+    log("info", `${asin} was removed from Ozon. The other products in this run are unchanged.`);
+    writeStatus({
+      status: restore,
+      currentStep: "remove",
+      notice: `${asin} was removed from Ozon. The other products in this run are unchanged.`,
+    });
+    return;
+  }
 
   if (job.action === "tasks") {
     await refreshTasks(modules);

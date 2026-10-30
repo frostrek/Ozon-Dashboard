@@ -55,7 +55,12 @@ export async function POST(request, { params }) {
       runId: params.runId,
       account,
       preserveStatus: true,
-      job: { ...job, action: body.action || job.action || 'push', asins: body.asins || job.asins || [] },
+      job: {
+      ...job,
+      action: body.action || job.action || 'push',
+      asin: body.asin || job.asin || '',
+      asins: body.asins || (body.asin ? [body.asin] : job.asins) || [],
+    },
     });
   } catch (error) {
     return NextResponse.json({ error: error.message || 'The run could not be continued.' }, { status: error.status || 500 });

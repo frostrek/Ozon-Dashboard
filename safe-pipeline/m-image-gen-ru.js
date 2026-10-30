@@ -24,7 +24,7 @@
  */
 
 const GROQ_API_KEY = Bun.env.GROQ_API_KEY;
-const GROQ_MODEL   = "llama-3.1-8b-instant";
+const GROQ_MODEL   = "llama-3.3-70b-versatile";
 
 // ── Background style map ──────────────────────────────────────────────────────
 const BACKGROUND_STYLE_MAP = {
