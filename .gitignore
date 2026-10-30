@@ -19,8 +19,8 @@ lerna-debug.log*
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
-# Runtime data
-runs/
+# Runtime job output only. Do not ignore app routes whose folder is also named runs.
+/runs/
 labels-output/
 tmp/
 pids

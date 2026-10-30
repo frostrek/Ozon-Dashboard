@@ -152,6 +152,7 @@ export default function PipelineClient({ accounts, initialAccountId }) {
     setLastRun(data.lastRun || null);
     setLastSuccess(data.lastSuccess || null);
     setRunningRun(data.running || null);
+    setLogs((current) => current || data.running?.log_excerpt || data.lastRun?.log_excerpt || '');
     setHistoryState('ready');
     setHistoryError('');
     return data;
@@ -188,13 +189,12 @@ export default function PipelineClient({ accounts, initialAccountId }) {
   function watchRun(runId) {
     if (sourceRef.current) sourceRef.current.close();
     setActiveRunId(runId);
-    setLogs('');
     setOrderPicture(null);
     setOutcome(null);
     const source = new EventSource(`/api/pipeline/stream?runId=${encodeURIComponent(runId)}`);
     sourceRef.current = source;
 
-    source.addEventListener('hello', () => setLogs(''));
+    source.addEventListener('hello', () => {});
     source.addEventListener('log', (event) => {
       const payload = JSON.parse(event.data);
       const line = payload.line || '';
@@ -334,7 +334,7 @@ export default function PipelineClient({ accounts, initialAccountId }) {
             type="button"
             className="dash-primary pipe-start-btn"
             onClick={startPipeline}
-            disabled={starting || stopping || !accountId || Boolean(runningForAccount)}
+            disabled={starting || stopping || !accountId}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
             {starting ? 'Starting...' : 'Start Pipeline'}
@@ -361,11 +361,6 @@ export default function PipelineClient({ accounts, initialAccountId }) {
         </div>
       </section>
 
-      {runningForAccount && !activeRunId && (
-        <p className="notice notice-warn">
-          A pipeline is already running for this account. Refresh this page in a moment, or wait about a minute if the last run crashed — stale runs clear automatically.
-        </p>
-      )}
       {error && <p className="notice notice-error" role="alert">{error}</p>}
 
       {orderPicture && (

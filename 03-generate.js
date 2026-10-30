@@ -1,9 +1,7 @@
 #!/usr/bin/env bun
 
-import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "path";
-import puppeteer from "puppeteer";
 import Handlebars from "handlebars";
 import { PDFDocument } from "pdf-lib";
 import { CONFIG } from "./config.js";
@@ -183,32 +181,9 @@ export async function generatePdfs(runDir, logger) {
   logger.info(`⚡ Done — ${ok.length}/${dataArray.length} PDFs generated.`);
 }
 
-function systemChromePath() {
-  const candidates = [
-    process.env.CHROME_PATH,
-    process.env.PUPPETEER_EXECUTABLE_PATH,
-    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-    path.join(process.env.LOCALAPPDATA || "", "Google", "Chrome", "Application", "chrome.exe"),
-    path.join(process.env.PROGRAMFILES || "", "Google", "Chrome", "Application", "chrome.exe"),
-  ].filter(Boolean);
-  return candidates.find((file) => existsSync(file)) || "";
-}
-
-function launchChrome() {
-  if (String(process.env.PUPPETEER_CACHE_DIR || "").includes("cursor-sandbox-cache")) {
-    delete process.env.PUPPETEER_CACHE_DIR;
-  }
-  const executablePath = systemChromePath();
-  if (!executablePath) {
-    throw new Error("Google Chrome was not found. Install Chrome, then run this again.");
-  }
-  process.env.PUPPETEER_EXECUTABLE_PATH = executablePath;
-  return puppeteer.launch({
-    headless: true,
-    executablePath,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
+async function launchChrome() {
+  const { launchPdfBrowser } = await import("./lib/ozon/pdfBrowser.js");
+  return launchPdfBrowser();
 }
 
 function registerPdfHelpers() {

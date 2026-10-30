@@ -25,6 +25,7 @@ export async function GET(req) {
       send('hello', { runId });
       let offset = 0;
       let announcedWait = false;
+      let sentExcerpt = false;
       const startedAt = Date.now();
 
       try {
@@ -35,10 +36,12 @@ export async function GET(req) {
             break;
           }
 
+          let sawFile = false;
           if (run.run_dir) {
             const logPath = path.join(process.cwd(), run.run_dir, 'pipeline.log');
             try {
               const info = await stat(logPath);
+              sawFile = true;
               if (info.size > offset) {
                 const handle = await open(logPath, 'r');
                 const length = info.size - offset;
@@ -58,6 +61,12 @@ export async function GET(req) {
           } else if (!announcedWait) {
             announcedWait = true;
             send('log', { line: 'Waiting for the pipeline to create its run folder...' });
+          }
+          if (!sawFile && !sentExcerpt && run.log_excerpt) {
+            sentExcerpt = true;
+            for (const line of String(run.log_excerpt).split(/\r?\n/)) {
+              if (line.trim()) send('log', { line });
+            }
           }
 
           if (run.status !== 'running') {
