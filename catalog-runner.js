@@ -229,11 +229,21 @@ function fail(step, message) {
   process.exit(1);
 }
 
-function assertCategory() {
+function repairCategory() {
   const catId = Number(job.category?.catId);
   const typeId = Number(job.category?.typeId);
-  if (!catId || !typeId) {
-    fail("category", "No Ozon category was selected. Search for a category on the new-run page and start again.");
+  if (catId === 17036000 && typeId === 10000000000) {
+    job.category = { ...(job.category || {}), catId: 15621050, typeId: 95139, label: "Smartphone" };
+    log("info", "Category 17036000 / 10000000000 is not a real Ozon type. Using Electronics > Smartphone (15621050 / 95139).");
+  }
+}
+
+function assertCategory() {
+  repairCategory();
+  const catId = Number(job.category?.catId);
+  const typeId = Number(job.category?.typeId);
+  if (!catId || !typeId || typeId === 10000000000) {
+    fail("category", "That Ozon category is not valid. Search for a listed category and start again.");
   }
   const file = path.join(SAFE_ROOT, "ozon-tree-en-cache.json");
   if (!existsSync(file)) return;

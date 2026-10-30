@@ -138,7 +138,7 @@ function ProductThumb({ src, title }) {
   );
 }
 
-export default function RunLive({ initial, accounts = [], otherActive = null }) {
+export default function RunLive({ initial, accounts = [] }) {
   const [run, setRun] = useState(initial);
   const [loadError, setLoadError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -361,7 +361,7 @@ export default function RunLive({ initial, accounts = [], otherActive = null }) 
   const showHeld = conditionApplied(run);
   const eligibleSelected = selected.filter((asin) => rows.some((item) => item.asin === asin && !item.previouslySaved && !item.held && item.uiStatus !== 'pushed'));
   const canPush = ['awaiting_confirm', 'completed', 'failed'].includes(run.status) && !run.rateLimited && readyCount > 0;
-  const actionsLocked = jobActive || Boolean(otherActive);
+  const actionsLocked = jobActive;
   const title = run.keyword || (run.mode === 'single' ? run.asin || 'Single product' : 'Catalog run');
   const logs = (run.logs || []).filter((entry) => {
     const level = String(entry.level || 'info').toLowerCase();
@@ -854,7 +854,6 @@ export default function RunLive({ initial, accounts = [], otherActive = null }) 
           loadError ? { id: 'load', tone: 'error', text: plainMessage(loadError), close: () => setLoadError('') } : null,
           actionError ? { id: 'action', tone: 'error', text: plainMessage(actionError), close: () => setActionError('') } : null,
           run.rateLimited ? { id: 'rate', tone: 'error', text: 'Ozon paused this account after too many requests. The run stopped immediately.' } : null,
-          otherActive && !live ? { id: 'other', tone: 'info', text: `A run is already active for ${otherActive.accountName}. Push and retry stay off until it finishes.`, href: `/catalog/runs/${otherActive.runId}`, hrefLabel: 'Open that run' } : null,
           run.notice && noticeOpen ? { id: 'notice', tone: /timed out|fail|error|reject/i.test(run.notice) ? 'error' : 'info', text: plainMessage(run.notice), close: () => dismissNote('notice', run.notice, setNoticeOpen) } : null,
           run.storageNote && storageOpen ? { id: 'storage', tone: 'info', text: run.storageNote, close: () => dismissNote('storage', run.storageNote, setStorageOpen) } : null,
         ].filter(Boolean);

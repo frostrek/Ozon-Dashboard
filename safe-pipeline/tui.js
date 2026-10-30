@@ -77,7 +77,7 @@ const CATEGORIES = [
   { value: { catId: 17028991, typeId: 629618165, label: "Sunscreen" }, label: '🧴 Sunscreen' },
   { value: { catId: 17028991, typeId: 93897, label: "Face Wash" }, label: '🧼 Face Wash' },
   { value: { catId: 17028992, typeId: 93945, label: "Hair Serum" }, label: '💧 Hair Serum' },
-  { value: { catId: 17036000, typeId: 10000000000, label: "Smartphone" }, label: '📱 Smartphone' },
+  { value: { catId: 15621050, typeId: 95139, label: "Smartphone" }, label: '📱 Smartphone' },
   { value: 'SEARCH', label: '🔍 Search Ozon Categories (API)...' },
   { value: 'CUSTOM', label: '🛠️  Enter Custom IDs manually...' },
 ];

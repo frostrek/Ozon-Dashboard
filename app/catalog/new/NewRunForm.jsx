@@ -63,7 +63,7 @@ const PRESETS = [
   { id: 'sunscreen', label: 'Sunscreen', catId: 17028991, typeId: 629618165 },
   { id: 'face-wash', label: 'Face Wash', catId: 17028991, typeId: 93897 },
   { id: 'hair-serum', label: 'Hair Serum', catId: 17028992, typeId: 93945 },
-  { id: 'smartphone', label: 'Smartphone', catId: 17036000, typeId: 10000000000 },
+  { id: 'smartphone', label: 'Smartphone', catId: 15621050, typeId: 95139 },
 ];
 
 const STEPS = [
@@ -297,10 +297,6 @@ export default function NewRunForm({ accounts, activeRun = null }) {
     event?.preventDefault();
     setError('');
     const selected = chosenCategory();
-    if (activeRun) {
-      setError('A catalog run is already in progress. Open it and wait for it to finish.');
-      return;
-    }
     if (!selected) {
       setError('Choose an Ozon category before starting.');
       setStepId('category');
@@ -357,8 +353,7 @@ export default function NewRunForm({ accounts, activeRun = null }) {
     }
   }
 
-  const blocked = Boolean(activeRun) || starting;
-  const sameAccount = activeRun && activeRun.accountId === accountId;
+  const blocked = starting;
 
   return (
     <form className="stack catalog-form catalog-wizard" onSubmit={goNext}>
@@ -368,9 +363,7 @@ export default function NewRunForm({ accounts, activeRun = null }) {
           Run in progress for {activeRun.accountName}.{' '}
           <Link href={`/catalog/runs/${activeRun.runId}`}>{activeRun.title}</Link>
           {' '}
-          {sameAccount
-            ? 'Start stays off for this account until that run finishes. Open it and press Stop run if it is stuck.'
-            : 'Only one catalog run can be active. Open it and press Stop run if it is stuck.'}
+          You can start another run while this one is still going.
         </p>
       ) : null}
 
