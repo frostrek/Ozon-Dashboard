@@ -736,21 +736,43 @@ async function main() {
   if (job.action === "remove") {
     const asin = String(job.asin || job.asins?.[0] || "").trim().toUpperCase();
     if (!asin) fail("remove", "No product was selected to delete.");
+    const info = await modules.push.ozonPost("/v3/product/info/list", { offer_id: [asin] });
+    const items = info.json?.items || info.json?.result?.items || [];
+    const product = items.find((item) => String(item.offer_id || "").toUpperCase() === asin) || items[0];
+    const productId = Number(product?.id || product?.product_id || 0);
+    let archived = false;
+    if (productId) {
+      const archive = await modules.push.ozonPost("/v1/product/archive", { product_id: [productId] });
+      archived = archive.ok && archive.json?.result !== false;
+      if (!archived) {
+        const reason = archive.json?.message || archive.text || "Ozon did not archive this product.";
+        fail("remove", `${asin}: ${String(reason).slice(0, 240)}`);
+      }
+      log("info", `${asin} was archived on Ozon.`);
+    }
     const result = await modules.push.ozonPost("/v2/products/delete", { products: [{ offer_id: asin }] });
     const row = result.json?.status?.find?.((item) => String(item.offer_id || "").toUpperCase() === asin) || result.json?.status?.[0];
-    if (!result.ok || row?.is_deleted === false) {
-      const reason = row?.error || result.json?.message || result.text || "Ozon did not delete this product.";
+    const deleteError = String(row?.error || result.json?.message || "");
+    const deleted = result.ok && row?.is_deleted !== false && !deleteError;
+    const created = /ITEM_IS_CREATED/i.test(deleteError);
+    if (!deleted && !(archived && created)) {
+      const reason = deleteError || result.text || "Ozon did not delete this product.";
       fail("remove", `${asin}: ${String(reason).slice(0, 240)}`);
     }
     const key = asin.toUpperCase();
     if (!state.deletedAsins.some((value) => String(value).toUpperCase() === key)) state.deletedAsins.push(asin);
     state.pushedAsins = state.pushedAsins.filter((value) => String(value).toUpperCase() !== key);
-    const restore = ["failed", "completed", "awaiting_confirm"].includes(previousStatus) ? previousStatus : "completed";
-    log("info", `${asin} was removed from Ozon. The other products in this run are unchanged.`);
+    const restore = previousStatus === "failed"
+      ? (state.preview?.length ? "awaiting_confirm" : "completed")
+      : (["completed", "awaiting_confirm"].includes(previousStatus) ? previousStatus : "completed");
+    const notice = deleted
+      ? `${asin} was removed from Ozon. The other products in this run are unchanged.`
+      : `${asin} is already created on Ozon, so it was moved to the archive. Ozon does not permanently delete a product after it is created. The other products in this run are unchanged.`;
+    log("info", notice);
     writeStatus({
       status: restore,
       currentStep: "remove",
-      notice: `${asin} was removed from Ozon. The other products in this run are unchanged.`,
+      notice,
     });
     return;
   }
