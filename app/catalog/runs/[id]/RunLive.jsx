@@ -2,9 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import ListPager from '../../../components/ListPager';
-
-const PAGE_SIZE = 15;
+import { useBatchScroll } from '../../../hooks/useBatchScroll';
 
 const STATUS_LABEL = {
   ready: 'Ready to push',
@@ -132,7 +130,6 @@ export default function RunLive({ initial, accounts = [] }) {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sort, setSort] = useState('newest');
-  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState([]);
   const [copied, setCopied] = useState('');
   const [menuAsin, setMenuAsin] = useState('');
@@ -323,7 +320,12 @@ export default function RunLive({ initial, accounts = [] }) {
     return next;
   }, [rows, query, statusFilter, sort]);
 
-  useEffect(() => { setPage(1); }, [query, statusFilter, sort, run.updatedAt]);
+  const scroll = useBatchScroll({
+    initialItems: filtered,
+    initialTotal: filtered.length,
+    resetKey: `${query}|${statusFilter}|${sort}`,
+    itemKey: 'asin',
+  });
 
   const total = Number(run.progress?.scraped) || rows.length || 0;
   const readyCount = rows.filter((item) => !item.previouslySaved && !item.held && item.uiStatus !== 'pushed').length;
@@ -339,9 +341,7 @@ export default function RunLive({ initial, accounts = [] }) {
     { key: 'pushed', label: 'Successfully pushed', value: pushedCount, tone: 'green' },
     { key: 'failed', label: 'Failed products', value: failedCount, tone: 'red' },
   ];
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const safePage = Math.min(page, pageCount);
-  const visible = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const visible = scroll.items;
   const held = rows.filter((item) => item.held);
   const alreadyScraped = rows.filter((item) => item.previouslySaved && item.uiStatus !== 'pushed');
   const showHeld = conditionApplied(run);
@@ -554,7 +554,7 @@ export default function RunLive({ initial, accounts = [] }) {
           {live && !rows.length ? (
             <div className="catalog-skeleton" aria-busy="true" aria-label="Loading products"><span /><span /><span /></div>
           ) : (
-            <div className="table-wrap run-table-scroll">
+            <div className="table-wrap run-table-scroll" ref={scroll.tableWrapRef}>
               <table className="data-table run-table">
               <thead>
                 <tr>
@@ -618,17 +618,8 @@ export default function RunLive({ initial, accounts = [] }) {
             </table>
           </div>
           )}
-          <ListPager
-            label="Product pages"
-            page={safePage}
-            pageCount={pageCount}
-            start={filtered.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1}
-            end={Math.min(safePage * PAGE_SIZE, filtered.length)}
-            total={filtered.length}
-            pageSize={PAGE_SIZE}
-            noun="products"
-            onPage={setPage}
-          />
+          {visible.length > 0 ? <div ref={scroll.sentinelRef} aria-hidden="true" /> : null}
+          {scroll.reachedEnd ? <p className="page-lead">All products in this view are loaded.</p> : null}
       </section>
 
         <section className="card table-card">

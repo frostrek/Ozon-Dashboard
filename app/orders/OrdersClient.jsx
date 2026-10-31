@@ -1,8 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import ListPager from '../components/ListPager';
 import TypeSelect from '../components/TypeSelect';
+import { FETCH_SIZE, useBatchScroll } from '../hooks/useBatchScroll';
 
 const STATUS_LABEL = {
   AWAITING_PACKAGING: 'Awaiting Packaging',
@@ -254,13 +254,32 @@ function Row({ label, value }) {
   );
 }
 
-export default function OrdersClient({ orders, statusCounts, accounts, currentStatus, currentAccount, currentDate, currentSearch, filteredCount = 0, currentPage = 1, pageCount = 1, pageSize = 10, exportIds = [] }) {
+export default function OrdersClient({ orders, statusCounts, accounts, currentStatus, currentAccount, currentDate, currentSearch, filteredCount = 0 }) {
   const router = useRouter();
   const [selected, setSelected] = useState(null);
   const [statusOverrides, setStatusOverrides] = useState({});
   const [statusChange, setStatusChange] = useState(null);
   const [statusBusy, setStatusBusy] = useState(false);
   const [statusNote, setStatusNote] = useState('');
+  const scroll = useBatchScroll({
+    initialItems: orders,
+    initialTotal: filteredCount,
+    resetKey: `${currentStatus}|${currentAccount}|${currentDate}|${currentSearch}`,
+    loadPage: async (page) => {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(FETCH_SIZE),
+        status: currentStatus || 'ALL',
+        account: currentAccount || 'all',
+        date: currentDate || 'all',
+        q: currentSearch || '',
+      });
+      const response = await fetch(`/api/orders?${params}`, { cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Orders could not be loaded.');
+      return { items: data.orders || [], total: Number(data.filteredCount) || 0 };
+    },
+  });
 
   const buildUrl = (params) => {
     const u = new URLSearchParams();
@@ -268,10 +287,6 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
     if (params.account ?? currentAccount) u.set('account', params.account ?? currentAccount);
     if (params.date    ?? currentDate)    u.set('date',    params.date    ?? currentDate);
     if (params.q       ?? currentSearch)  u.set('q',       params.q       ?? currentSearch);
-    const page = params.page ?? (params.status || params.account || params.date || params.q != null || params.pageSize ? '1' : String(currentPage));
-    const size = params.pageSize ?? String(pageSize);
-    if (page && page !== '1') u.set('page', page);
-    if (size && size !== '100') u.set('pageSize', size);
     return `/orders?${u.toString()}`;
   };
 
@@ -305,7 +320,7 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
     setSearching(false);
     setSelectedIds(new Set());
     setMenuId(null);
-  }, [currentSearch, currentStatus, currentAccount, currentDate, currentPage, pageSize]);
+  }, [currentSearch, currentStatus, currentAccount, currentDate]);
   
   const toggleAll = () => {
       const pageIds = visibleOrders.map((order) => order.id);
@@ -326,7 +341,7 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
   };
 
   async function exportSelectedExcel() {
-      const subsetIds = selectedIds.size ? [...selectedIds] : exportIds;
+      const subsetIds = selectedIds.size ? [...selectedIds] : scroll.loaded.map((order) => order.id);
       if (subsetIds.length === 0 || excelBusy) return;
       setPdfError('');
       setExcelBusy(true);
@@ -411,7 +426,7 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
     }
   }
 
-  const visibleOrders = orders.map((order) => statusOverrides[order.id] || order);
+  const visibleOrders = scroll.items.map((order) => statusOverrides[order.id] || order);
 
   function openStatusChange(ids, target) {
     const chosen = visibleOrders.filter((order) => ids.includes(order.id) && nextTargets(order).includes(target));
@@ -499,9 +514,6 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
     }
   }
 
-  const rangeStart = filteredCount === 0 ? 0 : ((currentPage - 1) * pageSize) + 1;
-  const rangeEnd = Math.min(currentPage * pageSize, filteredCount);
-
   return (
     <div className="orders-page">
       <header className="orders-hero">
@@ -518,7 +530,7 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
           const active = (currentStatus || 'ALL') === tab.key;
           const count = tab.key === 'ALL' ? statusCounts._total : (statusCounts[tab.key] || 0);
           return (
-            <a key={tab.key} href={buildUrl({ status: tab.key, page: '1' })} className={`orders-tab${active ? ' is-on' : ''}${tab.key === 'DELIVERED' ? ' is-delivered' : ''}${tab.key === 'CANCELLED' ? ' is-cancelled' : ''}`}>
+            <a key={tab.key} href={buildUrl({ status: tab.key })} className={`orders-tab${active ? ' is-on' : ''}${tab.key === 'DELIVERED' ? ' is-delivered' : ''}${tab.key === 'CANCELLED' ? ' is-cancelled' : ''}`}>
               <TabIcon name={tab.key} />
               <span className="orders-tab-copy">
                 <span>{tab.label}</span>
@@ -535,7 +547,7 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
           {DATE_FILTERS.map(df => {
             const on = (currentDate || 'all') === df.key;
             return (
-              <a key={df.key} href={buildUrl({ date: df.key, page: '1' })} className={on ? 'is-on' : ''}>
+              <a key={df.key} href={buildUrl({ date: df.key })} className={on ? 'is-on' : ''}>
                 {on ? <Icon><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M8 3v4M16 3v4M4 10h16" /></Icon> : null}
                 {df.label}
               </a>
@@ -557,7 +569,6 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
           <input type="hidden" name="status" value={currentStatus || 'ALL'} />
           <input type="hidden" name="date" value={currentDate || 'all'} />
           <input type="hidden" name="account" value={currentAccount || 'all'} />
-          {pageSize !== 10 ? <input type="hidden" name="pageSize" value={pageSize} /> : null}
           <span className="orders-search-field">
             <Icon><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4" /></Icon>
             <input name="q" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search posting #, SKU, title..." aria-label="Search orders" />
@@ -570,7 +581,7 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
             {searching ? 'Searching...' : 'Search'}
           </button>
         </form>
-        <button type="button" className="dash-outline" onClick={exportSelectedExcel} disabled={excelBusy || (selectedIds.size === 0 && exportIds.length === 0)}>
+        <button type="button" className="dash-outline" onClick={exportSelectedExcel} disabled={excelBusy || (selectedIds.size === 0 && scroll.loaded.length === 0)}>
           <Icon><path d="M12 4v10" /><path d="m8 10 4 4 4-4" /><path d="M5 19h14" /></Icon>
           {excelBusy ? 'Building Excel...' : 'Export Excel'}
         </button>
@@ -618,7 +629,14 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
       </div>
 
       {/* Table */}
-      <div className="table-wrap orders-table-wrap">
+      {scroll.loading ? <p className="page-lead">Loading the next 100 orders…</p> : null}
+      {scroll.error ? (
+        <p className="notice notice-error" role="alert">
+          {scroll.error}{' '}
+          <button type="button" className="dash-outline" onClick={scroll.retry}>Retry</button>
+        </p>
+      ) : null}
+      <div className="table-wrap orders-table-wrap" ref={scroll.tableWrapRef}>
         <table className="orders-table">
           <thead>
             <tr style={{ background:'#F8FAFC' }}>
@@ -740,19 +758,8 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
         </table>
       </div>
 
-      <ListPager
-        label="Order pages"
-        page={currentPage}
-        pageCount={pageCount}
-        start={rangeStart}
-        end={rangeEnd}
-        total={filteredCount}
-        noun={filteredCount === 1 ? 'order' : 'orders'}
-        hrefFor={(page) => buildUrl({ page: String(page) })}
-        pageSize={pageSize}
-        pageSizes={[50, 100]}
-        hrefForSize={(size) => buildUrl({ pageSize: String(size), page: '1' })}
-      />
+      {visibleOrders.length > 0 ? <div ref={scroll.sentinelRef} aria-hidden="true" /> : null}
+      {scroll.reachedEnd ? <p className="page-lead">All orders in this view are loaded.</p> : null}
 
       <OrderDrawer order={selected} onClose={() => setSelected(null)} />
       {statusChange && (

@@ -3,10 +3,8 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import ListPager from '../components/ListPager';
 import TypeSelect from '../components/TypeSelect';
-
-const PAGE_SIZE = 10;
+import { useBatchScroll } from '../hooks/useBatchScroll';
 
 const DATES = [
   { id: 'any', label: 'Any date' },
@@ -87,7 +85,6 @@ export default function CatalogBoard({ runs }) {
   const [account, setAccount] = useState('all');
   const [status, setStatus] = useState('all');
   const [date, setDate] = useState('any');
-  const [page, setPage] = useState(1);
   const [menuId, setMenuId] = useState('');
   const menuRef = useRef(null);
 
@@ -108,10 +105,6 @@ export default function CatalogBoard({ runs }) {
     if (!needle) return true;
     return [run.title, run.accountName, run.asin].some((value) => String(value || '').toLowerCase().includes(needle));
   }), [runs, account, status, date, search]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [search, account, status, date]);
 
   useEffect(() => {
     function close(event) {
@@ -170,11 +163,13 @@ export default function CatalogBoard({ runs }) {
     completed: filtered.filter((run) => run.status === 'completed').length,
     failed: filtered.filter((run) => run.status === 'failed').length,
   };
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, pageCount);
-  const start = filtered.length === 0 ? 0 : ((currentPage - 1) * PAGE_SIZE) + 1;
-  const end = Math.min(currentPage * PAGE_SIZE, filtered.length);
-  const rows = filtered.slice(start === 0 ? 0 : start - 1, end);
+  const scroll = useBatchScroll({
+    initialItems: filtered,
+    initialTotal: filtered.length,
+    resetKey: `${search}|${account}|${status}|${date}|${filtered.length}`,
+    itemKey: 'runId',
+  });
+  const rows = scroll.items;
 
   if (runs.length === 0) {
     return (
@@ -253,7 +248,7 @@ export default function CatalogBoard({ runs }) {
         <TypeSelect label="Date" value={date} options={DATES} onChange={setDate} />
       </div>
 
-      <div className="table-wrap catalog-table-wrap">
+      <div className="table-wrap catalog-table-wrap" ref={scroll.tableWrapRef}>
         <table className="catalog-table">
           <thead>
             <tr>
@@ -317,16 +312,8 @@ export default function CatalogBoard({ runs }) {
         </table>
       </div>
 
-      <ListPager
-        label="Catalog pages"
-        page={currentPage}
-        pageCount={pageCount}
-        start={start}
-        end={end}
-        total={filtered.length}
-        noun="runs"
-        onPage={setPage}
-      />
+      {rows.length > 0 ? <div ref={scroll.sentinelRef} aria-hidden="true" /> : null}
+      {scroll.reachedEnd ? <p className="page-lead">All catalog runs in this view are loaded.</p> : null}
     </div>
   );
 }

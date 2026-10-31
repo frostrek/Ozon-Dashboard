@@ -9,13 +9,11 @@ export default async function OrdersPage({ searchParams }) {
   const accountFilter = searchParams?.account || 'all';
   const dateFilter = searchParams?.date || 'all';
   const searchFilter = searchParams?.q || '';
-  const pageSize = [50, 100].includes(Number(searchParams?.pageSize)) ? Number(searchParams.pageSize) : ORDER_PAGE_SIZE;
-  const requestedPage = Math.max(1, Number(searchParams?.page) || 1);
 
   const [data, statusCounts, accounts] = await Promise.all([
     listOrdersPage({
-      page: requestedPage,
-      pageSize,
+      page: 1,
+      pageSize: ORDER_PAGE_SIZE,
       status: statusFilter,
       account: accountFilter,
       date: dateFilter,
@@ -38,10 +36,6 @@ export default async function OrdersPage({ searchParams }) {
       currentDate={dateFilter}
       currentSearch={searchFilter}
       filteredCount={data.filteredCount}
-      currentPage={data.page}
-      pageCount={data.pageCount}
-      pageSize={data.pageSize}
-      exportIds={data.orders.map((row) => row.id)}
     />
   );
 }

@@ -1,10 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import ListPager from '../components/ListPager';
 import TypeSelect from '../components/TypeSelect';
-
-const PAGE_SIZE = 20;
+import { useBatchScroll } from '../hooks/useBatchScroll';
 
 const EMPTY_FILTERS = {
   account: 'all',
@@ -68,7 +66,6 @@ export default function DocumentPicker({ onMessage }) {
   const [selected, setSelected] = useState(() => new Set());
   const [state, setState] = useState('loading');
   const [busy, setBusy] = useState('');
-  const [page, setPage] = useState(1);
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   useEffect(() => {
@@ -90,7 +87,6 @@ export default function DocumentPicker({ onMessage }) {
         setWarehouses(data.warehouses || []);
         setProducts(data.products || []);
         setSelected(new Set());
-        setPage(1);
         setState('ready');
       })
       .catch((err) => {
@@ -157,11 +153,13 @@ export default function DocumentPicker({ onMessage }) {
     }
   }
 
-  const pageCount = Math.max(1, Math.ceil(products.length / PAGE_SIZE));
-  const currentPage = Math.min(page, pageCount);
-  const rangeStart = products.length === 0 ? 0 : ((currentPage - 1) * PAGE_SIZE) + 1;
-  const rangeEnd = Math.min(currentPage * PAGE_SIZE, products.length);
-  const pageRows = products.slice(rangeStart === 0 ? 0 : rangeStart - 1, rangeEnd);
+  const scroll = useBatchScroll({
+    initialItems: products,
+    initialTotal: products.length,
+    resetKey: `${filters.account}|${filters.from}|${filters.to}|${filters.warehouse}|${filters.q}|${filters.sku}|${products.length}`,
+    itemKey: 'key',
+  });
+  const pageRows = scroll.items;
   const allChecked = pageRows.length > 0 && pageRows.every((row) => selected.has(row.key));
 
   return (
@@ -248,7 +246,7 @@ export default function DocumentPicker({ onMessage }) {
         </form>
       ) : null}
 
-      <div className="table-wrap label-table-wrap">
+      <div className="table-wrap label-table-wrap" ref={scroll.tableWrapRef}>
         <table className="label-table">
           <thead>
             <tr>
@@ -285,18 +283,8 @@ export default function DocumentPicker({ onMessage }) {
         </table>
       </div>
 
-      {products.length > 0 ? (
-        <ListPager
-          label="Product pages"
-          page={currentPage}
-          pageCount={pageCount}
-          start={rangeStart}
-          end={rangeEnd}
-          total={products.length}
-          noun="products"
-          onPage={setPage}
-        />
-      ) : null}
+      {pageRows.length > 0 ? <div ref={scroll.sentinelRef} aria-hidden="true" /> : null}
+      {scroll.reachedEnd ? <p className="page-lead">All products in this view are loaded.</p> : null}
     </section>
   );
 }
