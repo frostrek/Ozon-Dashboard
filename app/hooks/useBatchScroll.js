@@ -203,5 +203,10 @@ export function useBatchScroll({
     rangeEnd,
     goToPage,
     refresh: () => fetchBatch(1, true),
+    removeByKey(value) {
+      const key = latest.current.itemKey;
+      setFetched((previous) => previous.filter((item) => item[key] !== value));
+      setTotal((current) => Math.max(0, current - 1));
+    },
   };
 }

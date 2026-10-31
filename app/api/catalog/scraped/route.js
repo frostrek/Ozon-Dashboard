@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { listScrapedProducts } from '../../../../lib/catalog/scrapedProducts';
+import { deleteScrapedProduct, listScrapedProducts } from '../../../../lib/catalog/scrapedProducts';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,5 +17,18 @@ export async function GET(request) {
     return NextResponse.json(data);
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Scraped products could not be loaded.' }, { status: 500 });
+  }
+}
+
+export async function DELETE(request) {
+  const asin = new URL(request.url).searchParams.get('asin');
+  try {
+    const result = await deleteScrapedProduct(asin);
+    if (!result.deleted) {
+      return NextResponse.json({ error: 'That scraped product was not found.' }, { status: 404 });
+    }
+    return NextResponse.json({ ok: true, asin });
+  } catch (error) {
+    return NextResponse.json({ error: error.message || 'The scraped product could not be deleted.' }, { status: 500 });
   }
 }

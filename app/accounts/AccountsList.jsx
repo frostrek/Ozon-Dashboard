@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import DeleteAccount from './DeleteAccount';
 
-export default function AccountsList({ rows, deleteAction }) {
+export default function AccountsList({ rows }) {
   const [query, setQuery] = useState('');
   const needle = query.trim().toLowerCase();
   const shown = useMemo(() => {
@@ -93,7 +93,7 @@ export default function AccountsList({ rows, deleteAction }) {
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
                         {account.running ? 'Running' : 'Run'}
                       </Link>
-                      <DeleteAccount action={deleteAction} id={account.id} name={account.name} />
+                      <DeleteAccount id={account.id} name={account.name} />
                     </div>
                   </td>
                 </tr>

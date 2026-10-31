@@ -22,14 +22,6 @@ async function addAccount(_previous, formData) {
   redirect('/accounts?added=1');
 }
 
-async function deleteAccount(formData) {
-  'use server';
-  const id = formData.get('id');
-  if (!id) redirect('/accounts');
-  await prisma.account.delete({ where: { id: String(id) } });
-  redirect('/accounts');
-}
-
 function formatSync(value) {
   if (!value) return 'Never synced';
   return new Date(value).toLocaleString('en-IN', {
@@ -89,7 +81,7 @@ export default async function AccountsPage({ searchParams }) {
       </header>
 
       <AccountForm action={addAccount} saved={searchParams?.added === '1'} />
-      <AccountsList rows={rows} deleteAction={deleteAccount} />
+      <AccountsList rows={rows} />
     </div>
   );
 }

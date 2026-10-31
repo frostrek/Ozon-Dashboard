@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
+import FloatPop from './FloatPop';
 
 export default function TypeSelect({ label, value, options, onChange }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   const [active, setActive] = useState(0);
   const rootRef = useRef(null);
+  const popRef = useRef(null);
   const inputRef = useRef(null);
   const listId = useId();
   const selected = options.find((option) => option.id === value) || options[0];
@@ -19,7 +21,8 @@ export default function TypeSelect({ label, value, options, onChange }) {
     setActive(0);
     const timer = window.setTimeout(() => inputRef.current?.focus(), 0);
     function close(event) {
-      if (!rootRef.current?.contains(event.target)) setOpen(false);
+      if (rootRef.current?.contains(event.target) || popRef.current?.contains(event.target)) return;
+      setOpen(false);
     }
     document.addEventListener('pointerdown', close);
     return () => {
@@ -55,7 +58,7 @@ export default function TypeSelect({ label, value, options, onChange }) {
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
       </button>
       {open ? (
-        <div className="type-select-pop">
+        <FloatPop anchorRef={rootRef} popRef={popRef} className="type-select-pop is-float">
           <input
             ref={inputRef}
             value={text}
@@ -83,7 +86,7 @@ export default function TypeSelect({ label, value, options, onChange }) {
               </li>
             ))}
           </ul>
-        </div>
+        </FloatPop>
       ) : null}
     </div>
   );

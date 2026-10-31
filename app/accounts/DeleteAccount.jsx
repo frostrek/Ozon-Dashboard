@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 function RemoveIcon() {
   return (
@@ -14,9 +15,11 @@ function RemoveIcon() {
   );
 }
 
-export default function DeleteAccount({ action, id, name }) {
+export default function DeleteAccount({ id, name }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
+  const [error, setError] = useState('');
   const cancelRef = useRef(null);
 
   useEffect(() => {
@@ -29,9 +32,26 @@ export default function DeleteAccount({ action, id, name }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [open, pending]);
 
+  async function confirmDelete() {
+    if (pending) return;
+    setPending(true);
+    setError('');
+    try {
+      const response = await fetch(`/api/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'The account could not be deleted.');
+      setOpen(false);
+      router.refresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setPending(false);
+    }
+  }
+
   return (
     <>
-      <button type="button" className="accounts-delete" onClick={() => setOpen(true)}>
+      <button type="button" className="accounts-delete" onClick={() => { setError(''); setOpen(true); }}>
         <RemoveIcon />
         Delete
       </button>
@@ -50,23 +70,21 @@ export default function DeleteAccount({ action, id, name }) {
             </span>
             <h2 id={`delete-${id}`}>Delete {name}?</h2>
             <p>This removes the seller account from the app. Saved orders stay. This cannot be undone.</p>
-            <form action={action} onSubmit={() => setPending(true)}>
-              <input type="hidden" name="id" value={id} />
-              <div className="confirm-actions">
-                <button
-                  ref={cancelRef}
-                  type="button"
-                  className="dash-outline"
-                  disabled={pending}
-                  onClick={() => setOpen(false)}
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="confirm-danger" disabled={pending}>
-                  {pending ? 'Deleting...' : 'Delete account'}
-                </button>
-              </div>
-            </form>
+            {error ? <p className="notice notice-error" role="alert">{error}</p> : null}
+            <div className="confirm-actions">
+              <button
+                ref={cancelRef}
+                type="button"
+                className="dash-outline"
+                disabled={pending}
+                onClick={() => setOpen(false)}
+              >
+                Cancel
+              </button>
+              <button type="button" className="confirm-danger" disabled={pending} onClick={confirmDelete}>
+                {pending ? 'Deleting...' : 'Delete account'}
+              </button>
+            </div>
           </div>
         </div>
       )}

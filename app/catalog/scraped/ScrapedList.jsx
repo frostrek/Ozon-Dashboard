@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import ListPager from '../../components/ListPager';
 import { FETCH_SIZE, UI_BATCH, useBatchScroll } from '../../hooks/useBatchScroll';
 
@@ -24,6 +25,8 @@ export default function ScrapedList({
   status = 'all',
   date = 'all',
 }) {
+  const [deleting, setDeleting] = useState('');
+  const [deleteError, setDeleteError] = useState('');
   const scroll = useBatchScroll({
     initialItems: initialProducts,
     initialTotal: total,
@@ -46,6 +49,24 @@ export default function ScrapedList({
     },
   });
 
+  async function deleteProduct(product) {
+    const asin = product?.asin;
+    if (!asin || deleting) return;
+    if (!window.confirm(`Delete “${product.name || asin}” from scraped products? This cannot be undone.`)) return;
+    setDeleting(asin);
+    setDeleteError('');
+    try {
+      const response = await fetch(`/api/catalog/scraped?asin=${encodeURIComponent(asin)}`, { method: 'DELETE' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'The scraped product could not be deleted.');
+      scroll.removeByKey(asin);
+    } catch (error) {
+      setDeleteError(error.message);
+    } finally {
+      setDeleting('');
+    }
+  }
+
   return (
     <>
       {scroll.loading ? <p className="page-lead">Loading the next 100 products…</p> : null}
@@ -55,6 +76,7 @@ export default function ScrapedList({
           <button type="button" className="dash-outline" onClick={scroll.retry}>Retry</button>
         </p>
       ) : null}
+      {deleteError ? <p className="notice notice-error" role="alert">{deleteError}</p> : null}
       <div className="table-wrap catalog-table-wrap" ref={scroll.tableWrapRef}>
         <table className="catalog-table">
           <thead>
@@ -67,12 +89,13 @@ export default function ScrapedList({
               <th>Price</th>
               <th>Status</th>
               <th>Scraped</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {scroll.items.length === 0 ? (
               <tr>
-                <td colSpan={8} className="catalog-empty-cell">No scraped products match these filters.</td>
+                <td colSpan={9} className="catalog-empty-cell">No scraped products match these filters.</td>
               </tr>
             ) : scroll.items.map((product) => (
               <tr key={product.asin}>
@@ -92,6 +115,16 @@ export default function ScrapedList({
                 <td>{money(product.priceInr)}</td>
                 <td>{product.status === 'blocked_weight' ? 'Held by weight' : 'Ready'}</td>
                 <td className="catalog-when">{when(product.scrapedAt)}</td>
+                <td>
+                  <button
+                    type="button"
+                    className="dash-outline catalog-delete"
+                    disabled={deleting === product.asin}
+                    onClick={() => deleteProduct(product)}
+                  >
+                    {deleting === product.asin ? 'Deleting...' : 'Delete'}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>

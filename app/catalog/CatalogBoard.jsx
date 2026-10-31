@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import TypeSelect from '../components/TypeSelect';
+import FloatPop from '../components/FloatPop';
 import { useBatchScroll } from '../hooks/useBatchScroll';
 import ListPager from '../components/ListPager';
 
@@ -88,6 +89,7 @@ export default function CatalogBoard({ runs }) {
   const [date, setDate] = useState('any');
   const [menuId, setMenuId] = useState('');
   const menuRef = useRef(null);
+  const menuPopRef = useRef(null);
 
   const accounts = useMemo(
     () => [...new Set(runs.map((run) => run.accountName).filter(Boolean))].sort((left, right) => left.localeCompare(right)),
@@ -109,7 +111,8 @@ export default function CatalogBoard({ runs }) {
 
   useEffect(() => {
     function close(event) {
-      if (!menuRef.current?.contains(event.target)) setMenuId('');
+      if (menuRef.current?.contains(event.target) || menuPopRef.current?.contains(event.target)) return;
+      setMenuId('');
     }
     document.addEventListener('pointerdown', close);
     return () => document.removeEventListener('pointerdown', close);
@@ -289,7 +292,7 @@ export default function CatalogBoard({ runs }) {
                       <Icon name="more" />
                     </button>
                     {menuId === run.runId ? (
-                      <div className="catalog-menu-pop" role="menu">
+                      <FloatPop anchorRef={menuRef} popRef={menuPopRef} className="catalog-menu-pop is-float" align="right" role="menu">
                         <Link href={`/catalog/runs/${run.runId}`} role="menuitem">Open run</Link>
                         {run.status === 'pending' || run.status === 'running' ? (
                           <button type="button" role="menuitem" disabled={stopping === run.runId} onClick={() => stopRun(run)}>
@@ -304,7 +307,7 @@ export default function CatalogBoard({ runs }) {
                         >
                           {deleting === run.runId ? 'Deleting...' : 'Delete run'}
                         </button>
-                      </div>
+                      </FloatPop>
                     ) : null}
                   </div>
                 </td>
