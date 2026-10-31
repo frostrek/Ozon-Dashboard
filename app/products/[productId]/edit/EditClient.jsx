@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation';
 export default function EditClient({ product, account }) {
     const router = useRouter();
     const [saving, setSaving] = useState(false);
+    const [pushing, setPushing] = useState(false);
+    const [notice, setNotice] = useState('');
+    const [noticeKind, setNoticeKind] = useState('');
     
     // Parse JSON data
     let images = [], attrs = {};
@@ -26,27 +29,41 @@ export default function EditClient({ product, account }) {
     });
 
     const handleSave = async (pushToOzon = false) => {
-        setSaving(true);
+        if (saving || pushing) return;
+        if (pushToOzon) setPushing(true);
+        else setSaving(true);
+        setNotice('');
         try {
-            // Local DB Update
             const res = await fetch(`/api/products/${product.id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...form, pushToOzon })
+                body: JSON.stringify({ ...form, pushToOzon }),
             });
-
-            if (res.ok) {
-                alert(pushToOzon ? 'Listing updated and pushed to Ozon successfully!' : 'Local changes saved.');
-                router.push('/products');
-                router.refresh();
-            } else {
-                const err = await res.json();
-                alert(`Error: ${err.error || 'Failed to save'}`);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setNoticeKind('error');
+                setNotice(data.error || (pushToOzon
+                    ? 'The listing was saved here, but Ozon did not accept the update.'
+                    : 'The listing could not be saved.'));
+                return;
             }
-        } catch (e) {
-            alert('An unexpected error occurred.');
+            if (pushToOzon) {
+                const extra = data.warning ? ` ${data.warning}` : '';
+                const task = data.taskId ? ` Ozon task ${data.taskId}.` : '';
+                setNoticeKind('ok');
+                setNotice(`Saved and sent to Ozon.${task}${extra}`);
+                router.refresh();
+                return;
+            }
+            setNoticeKind('ok');
+            setNotice('Draft saved on this dashboard. Click Save and push to Ozon to send it to the seller account.');
+            router.refresh();
+        } catch {
+            setNoticeKind('error');
+            setNotice('The listing could not be saved.');
         } finally {
             setSaving(false);
+            setPushing(false);
         }
     };
 
@@ -62,14 +79,19 @@ export default function EditClient({ product, account }) {
                         </header>
                     </div>
                     <div className="toolbar">
-                        <button type="button" className="button-secondary" onClick={() => handleSave(false)} disabled={saving}>
+                        <button type="button" className="button-secondary" onClick={() => handleSave(false)} disabled={saving || pushing}>
                             {saving ? 'Saving...' : 'Save draft'}
                         </button>
-                        <button type="button" onClick={() => handleSave(true)} disabled={saving}>
-                            {saving ? 'Syncing...' : 'Save and push to Ozon'}
+                        <button type="button" onClick={() => handleSave(true)} disabled={saving || pushing}>
+                            {pushing ? 'Sending to Ozon...' : 'Save and push to Ozon'}
                         </button>
                     </div>
                 </div>
+                {notice ? (
+                    <p className={noticeKind === 'error' ? 'notice notice-error' : 'notice notice-ok'} role="status">
+                        {notice}
+                    </p>
+                ) : null}
 
                 <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:'32px' }}>
                     
