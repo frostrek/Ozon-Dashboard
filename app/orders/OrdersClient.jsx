@@ -271,7 +271,7 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
     const page = params.page ?? (params.status || params.account || params.date || params.q != null || params.pageSize ? '1' : String(currentPage));
     const size = params.pageSize ?? String(pageSize);
     if (page && page !== '1') u.set('page', page);
-    if (size && size !== '10') u.set('pageSize', size);
+    if (size && size !== '100') u.set('pageSize', size);
     return `/orders?${u.toString()}`;
   };
 
@@ -750,7 +750,7 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
         noun={filteredCount === 1 ? 'order' : 'orders'}
         hrefFor={(page) => buildUrl({ page: String(page) })}
         pageSize={pageSize}
-        pageSizes={[10, 20, 50]}
+        pageSizes={[50, 100]}
         hrefForSize={(size) => buildUrl({ pageSize: String(size), page: '1' })}
       />
 

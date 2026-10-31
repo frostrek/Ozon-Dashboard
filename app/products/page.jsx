@@ -1,41 +1,19 @@
 import { prisma } from '../../lib/prisma';
+import { listProductsPage, productTabCounts, PRODUCT_PAGE_SIZE } from '../../lib/products/listProducts';
 import ProductsClient from './ProductsClient';
 
 export const dynamic = 'force-dynamic';
 
-export default async function ProductsPage() {
-  const [dbProducts, accounts] = await Promise.all([
-    prisma.product.findMany({
-      orderBy: [
-        { updated_at: 'desc' },
-        { created_at: 'desc' },
-      ],
-      select: {
-        id: true,
-        account_id: true,
-        ozon_id: true,
-        sku: true,
-        name: true,
-        brand: true,
-        price: true,
-        old_price: true,
-        currency: true,
-        stock: true,
-        reserved_stock: true,
-        fbo_stock: true,
-        rating: true,
-        content_rating: true,
-        status: true,
-        status_name: true,
-        variant_group_id: true,
-        ozon_created_at: true,
-        created_at: true,
-        updated_at: true,
-        images_json: true,
-        attributes_json: true,
-        account: { select: { name: true } },
-      },
-    }),
+export default async function ProductsPage({ searchParams }) {
+  const page = Math.max(1, Number(searchParams?.page) || 1);
+  const tab = searchParams?.tab || 'ALL';
+  const account = searchParams?.account || 'all';
+  const list = searchParams?.list || 'all';
+  const q = searchParams?.q || '';
+
+  const [data, counts, accounts] = await Promise.all([
+    listProductsPage({ page, pageSize: PRODUCT_PAGE_SIZE, tab, account, list, q }),
+    productTabCounts(account),
     prisma.account.findMany({
       where: { active: true },
       select: { id: true, name: true },
@@ -43,11 +21,18 @@ export default async function ProductsPage() {
     }),
   ]);
 
-  const clientProducts = dbProducts.map((product) => ({
-    ...product,
-    account_name: product.account?.name || null,
-    account: undefined,
-  }));
-
-  return <ProductsClient initialProducts={clientProducts} accounts={accounts} />;
+  return (
+    <ProductsClient
+      initialProducts={data.products}
+      initialTotal={data.total}
+      initialPage={data.page}
+      initialPageCount={data.pageCount}
+      initialCounts={counts}
+      initialTab={tab}
+      initialAccount={account}
+      initialList={list}
+      initialQuery={q}
+      accounts={accounts}
+    />
+  );
 }

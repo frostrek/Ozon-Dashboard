@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import ListPager from '../components/ListPager';
 import TypeSelect from '../components/TypeSelect';
@@ -19,32 +19,7 @@ const TABS = [
   { id: 'OUT_OF_STOCK', label: 'Out of stock' },
 ];
 
-const PAGE_SIZE = 10;
-
-function listedAt(product) {
-  const updated = Date.parse(product.updated_at || '') || 0;
-  const created = Date.parse(product.created_at || '') || 0;
-  return Math.max(updated, created);
-}
-
-function isJustListed(product) {
-  const statusName = String(product.status_name || '');
-  return product.status === 'PENDING'
-    || String(product.ozon_id || '').startsWith('local-')
-    || /import sent|not sent/i.test(statusName);
-}
-
-function matchesTab(product, tab) {
-  const stock = Number(product.stock);
-  if (tab === 'READY_FOR_SALE') return product.status === 'ACTIVE' && stock > 0;
-  if (tab === 'ERROR') return product.status === 'ERROR';
-  if (tab === 'FOR_IMPROVEMENT') return typeof product.content_rating === 'number' && product.content_rating < 50;
-  if (tab === 'INACTIVE') return product.status === 'ACTIVE' && stock === 0;
-  if (tab === 'ARCHIVE') return product.status === 'ARCHIVED';
-  if (tab === 'LOW_STOCK') return stock < 5 && product.status !== 'ARCHIVED';
-  if (tab === 'OUT_OF_STOCK') return stock === 0 && product.status !== 'ARCHIVED';
-  return true;
-}
+const PAGE_SIZE = 100;
 
 function parseJson(value, fallback) {
   try {
@@ -220,16 +195,32 @@ function DetailDrawer({ product, onClose, onDelete }) {
   );
 }
 
-export default function ProductsClient({ initialProducts, accounts = [] }) {
-  const products = initialProducts || [];
-  const [activeTab, setActiveTab] = useState('ALL');
-  const [filterAccount, setFilterAccount] = useState('all');
-  const [listFilter, setListFilter] = useState('all');
-  const [search, setSearch] = useState('');
+export default function ProductsClient({
+  initialProducts,
+  initialTotal = 0,
+  initialPage = 1,
+  initialPageCount = 1,
+  initialCounts = {},
+  initialTab = 'ALL',
+  initialAccount = 'all',
+  initialList = 'all',
+  initialQuery = '',
+  accounts = [],
+}) {
+  const [products, setProducts] = useState(initialProducts || []);
+  const [total, setTotal] = useState(initialTotal);
+  const [pageCount, setPageCount] = useState(Math.max(1, initialPageCount));
+  const [counts, setCounts] = useState(initialCounts);
+  const [activeTab, setActiveTab] = useState(initialTab);
+  const [filterAccount, setFilterAccount] = useState(initialAccount);
+  const [listFilter, setListFilter] = useState(initialList);
+  const [search, setSearch] = useState(initialQuery);
   const [selected, setSelected] = useState(null);
   const [selection, setSelection] = useState([]);
   const [showVariants, setShowVariants] = useState({});
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(initialPage);
+  const [loadingPage, setLoadingPage] = useState(false);
+  const skipFirst = useRef(true);
   const router = useRouter();
   const [notice, setNotice] = useState('');
   const [adding, setAdding] = useState(false);
@@ -242,55 +233,54 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState('');
 
-  const accountProducts = useMemo(
-    () => products.filter((product) => filterAccount === 'all' || product.account_id === filterAccount),
-    [products, filterAccount],
-  );
-
-  const counts = useMemo(() => {
-    const tally = {};
-    TABS.forEach((tab) => {
-      tally[tab.id] = accountProducts.filter((product) => matchesTab(product, tab.id)).length;
-    });
-    return tally;
-  }, [accountProducts]);
-
-  const filteredProducts = useMemo(() => {
-    const matched = accountProducts.filter((product) => {
-      if (!matchesTab(product, activeTab)) return false;
-      if (listFilter === 'listed' && !isJustListed(product)) return false;
-      if (listFilter === 'selling' && !(product.status === 'ACTIVE' || product.status_name === 'Продается')) return false;
-      if (listFilter === 'out' && !(Number(product.stock) === 0 && product.status !== 'ARCHIVED')) return false;
-      if (listFilter === 'error' && product.status !== 'ERROR') return false;
-      if (!search.trim()) return true;
-      const needle = search.toLowerCase();
-      const barcode = barcodeOf(product) || '';
-      return [product.name, product.sku, product.ozon_id, product.brand, barcode]
-        .some((value) => String(value || '').toLowerCase().includes(needle));
-    });
-    return matched.sort((left, right) => listedAt(right) - listedAt(left));
-  }, [accountProducts, activeTab, search, listFilter]);
-
-  React.useEffect(() => {
-    setPage(1);
-  }, [activeTab, filterAccount, search, listFilter]);
+  useEffect(() => {
+    if (skipFirst.current) {
+      skipFirst.current = false;
+      return undefined;
+    }
+    const timer = setTimeout(async () => {
+      setLoadingPage(true);
+      try {
+        const params = new URLSearchParams({
+          page: String(page),
+          pageSize: String(PAGE_SIZE),
+          tab: activeTab,
+          account: filterAccount,
+          list: listFilter,
+          q: search.trim(),
+        });
+        const response = await fetch(`/api/products?${params}`, { cache: 'no-store' });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Products could not be loaded.');
+        setProducts(data.products || []);
+        setTotal(Number(data.total) || 0);
+        setPageCount(Math.max(1, Number(data.pageCount) || 1));
+        if (data.counts) setCounts(data.counts);
+        if (Number(data.page) && Number(data.page) !== page) setPage(Number(data.page));
+      } catch (error) {
+        setNotice(error.message);
+      } finally {
+        setLoadingPage(false);
+      }
+    }, search ? 250 : 0);
+    return () => clearTimeout(timer);
+  }, [page, activeTab, filterAccount, listFilter, search]);
 
   const variantGroups = useMemo(() => {
     const groups = {};
-    filteredProducts.forEach((product) => {
+    products.forEach((product) => {
       const key = product.variant_group_id || `none_${product.id}`;
       if (!groups[key]) groups[key] = [];
       groups[key].push(product);
     });
     return groups;
-  }, [filteredProducts]);
+  }, [products]);
 
   const groupEntries = Object.entries(variantGroups);
-  const pageCount = Math.max(1, Math.ceil(groupEntries.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
-  const rangeStart = groupEntries.length === 0 ? 0 : ((currentPage - 1) * PAGE_SIZE) + 1;
-  const rangeEnd = Math.min(currentPage * PAGE_SIZE, groupEntries.length);
-  const pageGroups = groupEntries.slice(rangeStart === 0 ? 0 : rangeStart - 1, rangeEnd);
+  const rangeStart = total === 0 ? 0 : ((currentPage - 1) * PAGE_SIZE) + 1;
+  const rangeEnd = Math.min(currentPage * PAGE_SIZE, total);
+  const pageGroups = groupEntries;
   const pageIds = pageGroups.flatMap(([, group]) => group.map((product) => product.id));
   const filtersActive = activeTab !== 'ALL' || filterAccount !== 'all' || listFilter !== 'all';
 
@@ -299,6 +289,7 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
     setFilterAccount('all');
     setListFilter('all');
     setSearch('');
+    setPage(1);
   }
 
   function handleSelectAll(event) {
@@ -386,7 +377,7 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
   }
 
   let empty = null;
-  if (products.length === 0) {
+  if (products.length === 0 && total === 0 && !search.trim() && activeTab === 'ALL' && filterAccount === 'all' && listFilter === 'all') {
     empty = {
       title: 'No products yet',
       text: 'This page only shows products fetched from your Ozon seller account. A catalog push does not fill this list until Ozon has the product and you sync.',
@@ -460,11 +451,11 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
             role="tab"
             aria-selected={activeTab === tab.id}
             className={activeTab === tab.id ? 'prod-tab is-on' : 'prod-tab'}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => { setActiveTab(tab.id); setPage(1); }}
           >
             <span className={`prod-dot is-${tab.id.toLowerCase()}`} aria-hidden="true" />
             {tab.label}
-            <span className="prod-tab-count">{counts[tab.id].toLocaleString('en-US')}</span>
+            <span className="prod-tab-count">{Number(counts[tab.id] || 0).toLocaleString('en-US')}</span>
           </button>
         ))}
       </div>
@@ -475,7 +466,7 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
           <input
             type="search"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => { setSearch(event.target.value); setPage(1); }}
             placeholder="Search by name, article code, SKU, or barcode"
             aria-label="Search products"
           />
@@ -485,7 +476,7 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
           label="Account"
           value={filterAccount}
           options={[{ id: 'all', label: 'All accounts' }, ...accounts.map((account) => ({ id: account.id, label: account.name }))]}
-          onChange={setFilterAccount}
+          onChange={(value) => { setFilterAccount(value); setPage(1); }}
         />
         <TypeSelect
           label="Products"
@@ -497,7 +488,7 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
             { id: 'out', label: 'Out of stock' },
             { id: 'error', label: 'Errors' },
           ]}
-          onChange={setListFilter}
+          onChange={(value) => { setListFilter(value); setPage(1); }}
         />
         {(filtersActive || search) && (
           <button type="button" className="dash-outline prod-clear" onClick={clearFilters}>Clear filters</button>
@@ -513,6 +504,7 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
         )}
       </div>
 
+      {loadingPage ? <p className="page-lead">Loading the next 100 products…</p> : null}
       <div className="table-wrap prod-table-wrap">
         <table className="data-table prod-table">
           <thead>
@@ -615,14 +607,15 @@ export default function ProductsClient({ initialProducts, accounts = [] }) {
         </table>
       </div>
 
-      {groupEntries.length > 0 && (
+      {total > 0 && (
         <ListPager
           label="Product pages"
           page={currentPage}
           pageCount={pageCount}
           start={rangeStart}
           end={rangeEnd}
-          total={groupEntries.length}
+          total={total}
+          pageSize={PAGE_SIZE}
           noun="products"
           onPage={setPage}
         />

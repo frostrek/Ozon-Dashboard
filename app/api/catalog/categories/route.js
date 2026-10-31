@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NextResponse } from 'next/server';
 import { prisma } from '../../../../lib/prisma';
+import { cacheGet, cacheSet } from '../../../../lib/cache/upstash';
 import { ozonPost } from '../../../../ozon-http.js';
 
 const DASHBOARD_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
@@ -77,9 +78,15 @@ async function fetchOzonTree(account, language) {
 
 async function ensureTree() {
   if (cachedTree?.length) return cachedTree;
+  const redisTree = await cacheGet('ozon:category-tree:v1');
+  if (Array.isArray(redisTree) && redisTree.length) {
+    cachedTree = redisTree;
+    return cachedTree;
+  }
   const disk = categoryTreeFromDisk();
   if (disk.length) {
     cachedTree = disk;
+    cacheSet('ozon:category-tree:v1', cachedTree, 60 * 60 * 12).catch(() => {});
     return cachedTree;
   }
   if (!loadingTree) {
@@ -94,6 +101,7 @@ async function ensureTree() {
       try { russian = await fetchOzonTree(account, 'RU'); } catch { russian = []; }
       cachedTree = mergeTrees(russian, english);
       if (!cachedTree.length) throw new Error('Ozon returned an empty category list.');
+      cacheSet('ozon:category-tree:v1', cachedTree, 60 * 60 * 12).catch(() => {});
       return cachedTree;
     })().finally(() => {
       loadingTree = null;
