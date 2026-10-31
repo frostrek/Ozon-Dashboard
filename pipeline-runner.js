@@ -8,6 +8,7 @@ import { generatePdfs } from "./03-generate.js";
 import { exportToExcel } from "./04-excel.js";
 import { notifySuccess, notifyFailure, notifyNoOrders } from "./05-notify.js";
 import { getAppSetting } from "./lib/settings/appSettings.js";
+import { persistRunFiles } from "./lib/pipeline/runFileStore.js";
 
 const prisma = new PrismaClient();
 const accountId = process.argv[2];
@@ -392,6 +393,13 @@ async function run() {
                 status:           'success'
             }
         });
+
+        try {
+            await persistRunFiles(`runs/${runDirName}`);
+            console.log(`[pipeline-runner] Saved PDF/Excel to database so downloads survive deploys`);
+        } catch (storeErr) {
+            console.error(`[pipeline-runner] Could not save run files to database: ${storeErr.message}`);
+        }
 
         await note('done', `Pipeline finished. ${count} orders in ${elapsed}s.`);
         await prisma.pipelineRun.update({

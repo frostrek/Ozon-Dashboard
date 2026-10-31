@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
-import { readFile, stat } from 'fs/promises';
-import path from 'path';
+import { readStoredRunFile } from '../../../lib/pipeline/runFileStore';
+
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 export async function GET(req) {
   try {
@@ -11,33 +13,21 @@ export async function GET(req) {
       return new NextResponse('Invalid file path', { status: 400 });
     }
 
-    // Securely resolve the absolute path and prevent directory traversal
-    const safePath = path.normalize(filePathParam).replace(/^(\.\.(\/|\\|$))+/, '');
-    const absolutePath = path.join(process.cwd(), safePath);
+    const stored = await readStoredRunFile(filePathParam);
+    if (!stored) {
+      return new NextResponse(
+        'File not found. Render clears disk on each deploy. New pipeline runs keep PDF and Excel in the database.',
+        { status: 404 },
+      );
+    }
 
-    // Verify file exists
-    await stat(absolutePath);
-
-    const fileBuffer = await readFile(absolutePath);
-
-    // Determine content type based on extension
-    const ext = path.extname(absolutePath).toLowerCase();
-    let contentType = 'application/octet-stream';
-    if (ext === '.pdf') contentType = 'application/pdf';
-    if (ext === '.xlsx') contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-    if (ext === '.json') contentType = 'application/json';
-    if (ext === '.log') contentType = 'text/plain';
-
-    const filename = path.basename(absolutePath);
-
-    return new NextResponse(fileBuffer, {
+    return new NextResponse(stored.buffer, {
       status: 200,
       headers: {
-        'Content-Type': contentType,
-        'Content-Disposition': `attachment; filename="${filename}"` // Forces download behavior
-      }
+        'Content-Type': stored.contentType,
+        'Content-Disposition': `attachment; filename="${stored.filename}"`,
+      },
     });
-
   } catch (err) {
     if (err.code === 'ENOENT') {
       return new NextResponse('File not found', { status: 404 });

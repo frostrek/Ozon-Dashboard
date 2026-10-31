@@ -52,7 +52,8 @@ export default function ReportsClient({ initialReports, total }) {
                 <td>
                   {report.pdfUrl ? <a className="file-link" href={`/api/download?file=${report.pdfUrl.replace(/^\//, '')}`}>Download PDF</a> : null}
                   {report.excelUrl ? <a className="file-link" href={`/api/download?file=${report.excelUrl.replace(/^\//, '')}`}>Download Excel</a> : null}
-                  {!report.pdfUrl && !report.excelUrl && '—'}
+                  {report.filesMissing ? <span className="muted">Files were on the server disk and are gone after a deploy. Run the pipeline again to keep a copy.</span> : null}
+                  {!report.pdfUrl && !report.excelUrl && !report.filesMissing && '—'}
                   <Link className="file-link" href="/logs">View logs</Link>
                 </td>
               </tr>
