@@ -4,182 +4,170 @@ import { CONFIG } from "./config.js";
 import path from "path";
 
 /**
- * 02-translate.js
- *
- * Translates every Russian string in the JSON data to English, preserving
- * the entire data structure exactly. Non-Russian strings are never touched.
- *
- * Uses the undocumented Google Chrome Dictionary extension endpoint:
- *   https://clients5.google.com/translate_a/t?client=dict-chrome-ex
- *
- * This endpoint is more lenient with rate limits than the standard
- * translate_a/single endpoint used by most open-source wrappers.
- * No API key. No npm package. Pure fetch.
- *
- * Also maintains a persistent translation cache file (translate-cache.json)
- * in the project root. Strings seen in previous runs are never re-translated,
- * which means Google Translate is barely hit after the first few runs.
+ * Translate product titles for labels/Excel only.
+ * Customer names, cities, payment rows, and discount text stay as Ozon sent them.
  */
 
 const CACHE_FILE = path.join(process.cwd(), "translate-cache.json");
+const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
+const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 
-// ─── Persistent cache helpers ─────────────────────────────────────────────────
+const hasRussian = (str) => typeof str === "string" && /[а-яА-ЯёЁ]/.test(str);
 
 async function loadPersistentCache() {
   const file = Bun.file(CACHE_FILE);
   if (!(await file.exists())) return new Map();
   try {
-    const obj = await file.json();
-    return new Map(Object.entries(obj));
+    return new Map(Object.entries(await file.json()));
   } catch {
     return new Map();
   }
 }
 
 async function savePersistentCache(cache) {
-  const obj = Object.fromEntries(cache);
-  await Bun.write(CACHE_FILE, JSON.stringify(obj, null, 2));
+  try {
+    await Bun.write(CACHE_FILE, JSON.stringify(Object.fromEntries(cache), null, 2));
+  } catch {
+    /* Render disk may be read-only after boot */
+  }
 }
 
-// ─── Google clients5 endpoint ─────────────────────────────────────────────────
-
-async function translateString(text, logger, attempts = 3) {
-  try {
-    const url = new URL("https://clients5.google.com/translate_a/t");
-    url.searchParams.set("client", "dict-chrome-ex");
-    url.searchParams.set("sl", "ru");
-    url.searchParams.set("tl", "en");
-    url.searchParams.set("q", text);
-
-    const res = await fetch(url.toString(), {
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-        "Referer": "https://chrome.google.com/",
-      },
-      signal: AbortSignal.timeout(10_000),
-    });
-
-    if (res.status === 429) {
-      // Hard rate limit — back off longer before retrying
-      const wait = 5000 * (4 - attempts); // 5s, 10s, 15s
-      logger.warn(`⚠️  Rate limited (429). Waiting ${wait / 1000}s before retry...`);
-      await Bun.sleep(wait);
-      throw new Error("429 rate limited");
+function productNames(orders) {
+  const names = new Set();
+  if (!Array.isArray(orders)) return names;
+  for (const order of orders) {
+    for (const product of order?.products || []) {
+      const name = String(product?.name || "").trim();
+      if (hasRussian(name)) names.add(name);
     }
+  }
+  return [...names];
+}
 
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+function applyProductNames(orders, cache) {
+  if (!Array.isArray(orders)) return orders;
+  return orders.map((order) => ({
+    ...order,
+    products: Array.isArray(order.products)
+      ? order.products.map((product) => {
+        const name = String(product?.name || "").trim();
+        if (!hasRussian(name)) return product;
+        return { ...product, name: cache.get(name) || name };
+      })
+      : order.products,
+  }));
+}
 
-    const data = await res.json();
+async function translateWithGroq(texts, logger) {
+  if (!GROQ_API_KEY || texts.length === 0) return null;
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      temperature: 0.1,
+      messages: [
+        {
+          role: "system",
+          content: "Translate Russian product titles to natural English. Keep brand names. Return only a JSON array of strings, same order and length as the input.",
+        },
+        { role: "user", content: JSON.stringify(texts) },
+      ],
+    }),
+    signal: AbortSignal.timeout(45_000),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data?.error?.message || `Groq returned HTTP ${response.status}`);
+  }
+  const raw = String(data?.choices?.[0]?.message?.content || "").trim();
+  const json = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  const parsed = JSON.parse(json);
+  if (!Array.isArray(parsed) || parsed.length !== texts.length) {
+    throw new Error("Groq did not return one translation per title.");
+  }
+  logger.info(`Translated ${texts.length} product title(s) with Groq.`);
+  return parsed.map((item) => String(item || "").trim());
+}
 
-    // sl=ru returns a flat string array: ["Moscow"]
-    // data[0] is the translated string directly.
-    const translated = Array.isArray(data) ? data[0] : null;
-
-    if (!translated || typeof translated !== "string") {
-      throw new Error(`Unexpected response: ${JSON.stringify(data).slice(0, 100)}`);
-    }
-
-    return translated;
-  } catch (err) {
-    if (attempts > 1) {
-      await Bun.sleep(1000);
-      return translateString(text, logger, attempts - 1);
-    }
-    // All retries exhausted — return original text, pipeline continues
-    logger.warn(`⚠️  Could not translate: "${text.substring(0, 50)}..." — keeping original`);
+async function translateWithGoogle(text, logger) {
+  const url = new URL("https://clients5.google.com/translate_a/t");
+  url.searchParams.set("client", "dict-chrome-ex");
+  url.searchParams.set("sl", "ru");
+  url.searchParams.set("tl", "en");
+  url.searchParams.set("q", text);
+  const res = await fetch(url.toString(), {
+    headers: {
+      "User-Agent": "Mozilla/5.0",
+      Referer: "https://chrome.google.com/",
+    },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (res.status === 429) {
+    logger.warn("Google Translate rate-limited this title. Keeping the Russian name.");
     return text;
   }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  const translated = Array.isArray(data) ? data[0] : null;
+  if (!translated || typeof translated !== "string") return text;
+  return translated;
 }
-
-// ─── JSON tree helpers ────────────────────────────────────────────────────────
-
-const hasRussian = (str) => typeof str === "string" && /[а-яА-ЯёЁ]/.test(str);
-
-function collectAllRussianStrings(obj, seen = new Set()) {
-  if (hasRussian(obj)) {
-    seen.add(obj);
-  } else if (Array.isArray(obj)) {
-    for (const item of obj) collectAllRussianStrings(item, seen);
-  } else if (obj && typeof obj === "object") {
-    for (const value of Object.values(obj)) collectAllRussianStrings(value, seen);
-  }
-  return seen;
-}
-
-function applyTranslations(obj, cache) {
-  if (hasRussian(obj)) return cache.get(obj) ?? obj;
-  if (Array.isArray(obj)) return obj.map((item) => applyTranslations(item, cache));
-  if (obj && typeof obj === "object") {
-    const newObj = {};
-    for (const [key, value] of Object.entries(obj)) {
-      newObj[key] = applyTranslations(value, cache);
-    }
-    return newObj;
-  }
-  return obj;
-}
-
-// ─── Main export ──────────────────────────────────────────────────────────────
 
 export async function translateOrders(runDir, logger) {
   const inputFile = `${runDir}/${CONFIG.filenames.raw}`;
   const outputFile = `${runDir}/${CONFIG.filenames.translated}`;
-
-  const CONCURRENCY = 5;   // parallel requests per batch
-  const DELAY_MS = 200; // pause between batches (ms) — be gentle
-
-  // 1. Load input
   const inputBunFile = Bun.file(inputFile);
   if (!(await inputBunFile.exists())) {
     throw new Error(`Input file not found: ${inputFile}`);
   }
   const data = await inputBunFile.json();
+  const names = productNames(data);
 
-  // 2. Collect all unique Russian strings from the entire JSON tree
-  const allRussianStrings = [...collectAllRussianStrings(data)];
-
-  if (allRussianStrings.length === 0) {
-    logger.info("✅ No Russian text found. Copying input to output as-is.");
+  if (names.length === 0) {
+    logger.info("No Russian product titles to translate. Copying orders as-is.");
     await Bun.write(outputFile, JSON.stringify(data, null, 2));
     return;
   }
 
-  logger.info(`🔍 Found ${allRussianStrings.length} unique Russian string(s) in data.`);
+  logger.info(`Translating ${names.length} product title(s) for labels. Customer and address text is left as Ozon sent it.`);
 
-  // 3. Load persistent cache — strings translated in previous runs are free
-  const persistentCache = await loadPersistentCache();
-  const cacheHits = allRussianStrings.filter((s) => persistentCache.has(s));
-  const cacheMisses = allRussianStrings.filter((s) => !persistentCache.has(s));
+  const cache = await loadPersistentCache();
+  const misses = names.filter((name) => !cache.has(name));
+  logger.info(`Cache: ${names.length - misses.length} hit(s), ${misses.length} need translation.`);
 
-  logger.info(`📦 Cache: ${cacheHits.length} hit(s), ${cacheMisses.length} need translation.`);
-
-  // 4. Translate only what the cache doesn't already know
-  if (cacheMisses.length > 0) {
-    logger.info(`🌐 Translating ${cacheMisses.length} string(s) via Google (clients5 endpoint)...`);
-
-    for (let i = 0; i < cacheMisses.length; i += CONCURRENCY) {
-      const batch = cacheMisses.slice(i, i + CONCURRENCY);
-      const results = await Promise.all(batch.map((s) => translateString(s, logger)));
-
-      batch.forEach((original, idx) => persistentCache.set(original, results[idx]));
-
-      const progress = Math.min(i + CONCURRENCY, cacheMisses.length);
-      process.stdout.write(
-        `\x1b[2K\r   Progress: ${progress}/${cacheMisses.length} translated...`
-      );
-
-      if (i + CONCURRENCY < cacheMisses.length) await Bun.sleep(DELAY_MS);
+  if (misses.length) {
+    let usedGroq = false;
+    try {
+      const groq = await translateWithGroq(misses, logger);
+      if (groq) {
+        misses.forEach((original, index) => cache.set(original, groq[index] || original));
+        usedGroq = true;
+      }
+    } catch (error) {
+      logger.warn(`Groq translation skipped: ${error.message}. Falling back to one Google request at a time.`);
     }
 
-    process.stdout.write("\n");
+    if (!usedGroq) {
+      for (let index = 0; index < misses.length; index += 1) {
+        const original = misses[index];
+        try {
+          cache.set(original, await translateWithGoogle(original, logger));
+        } catch {
+          cache.set(original, original);
+          logger.warn(`Could not translate "${original.slice(0, 50)}". Keeping original.`);
+        }
+        if (index + 1 < misses.length) await Bun.sleep(400);
+      }
+    }
 
-    // Save updated cache back to disk for future runs
-    await savePersistentCache(persistentCache);
-    logger.info(`💾 Cache saved to ${CACHE_FILE} (${persistentCache.size} total entries).`);
+    await savePersistentCache(cache);
   }
 
-  // 5. Apply all translations (cache covers everything now)
-  const translatedData = applyTranslations(data, persistentCache);
+  const translatedData = applyProductNames(data, cache);
   await Bun.write(outputFile, JSON.stringify(translatedData, null, 2));
-  logger.info(`✅ Translated data saved to: ${outputFile}`);
+  logger.info(`Translated product titles saved to ${outputFile}`);
 }
