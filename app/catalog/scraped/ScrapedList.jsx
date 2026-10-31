@@ -1,6 +1,7 @@
 'use client';
 
-import { FETCH_SIZE, useBatchScroll } from '../../hooks/useBatchScroll';
+import ListPager from '../../components/ListPager';
+import { FETCH_SIZE, UI_BATCH, useBatchScroll } from '../../hooks/useBatchScroll';
 
 function money(value) {
   const amount = Number(value);
@@ -28,6 +29,7 @@ export default function ScrapedList({
     initialTotal: total,
     resetKey: `${query}|${brand}|${status}|${date}`,
     itemKey: 'asin',
+    pageMode: true,
     loadPage: async (page) => {
       const params = new URLSearchParams({
         page: String(page),
@@ -95,8 +97,19 @@ export default function ScrapedList({
           </tbody>
         </table>
       </div>
-      {scroll.items.length > 0 ? <div ref={scroll.sentinelRef} aria-hidden="true" /> : null}
-      {scroll.reachedEnd ? <p className="page-lead">All scraped products in this view are loaded.</p> : null}
+      {scroll.total > 0 ? (
+        <ListPager
+          label="Scraped product pages"
+          page={scroll.currentPage}
+          pageCount={scroll.pageCount}
+          start={scroll.rangeStart}
+          end={scroll.rangeEnd}
+          total={scroll.total}
+          pageSize={UI_BATCH}
+          noun="products"
+          onPage={scroll.goToPage}
+        />
+      ) : null}
     </>
   );
 }

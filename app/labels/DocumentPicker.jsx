@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import TypeSelect from '../components/TypeSelect';
 import { useBatchScroll } from '../hooks/useBatchScroll';
+import ListPager from '../components/ListPager';
 
 const EMPTY_FILTERS = {
   account: 'all',
@@ -158,6 +159,7 @@ export default function DocumentPicker({ onMessage }) {
     initialTotal: products.length,
     resetKey: `${filters.account}|${filters.from}|${filters.to}|${filters.warehouse}|${filters.q}|${filters.sku}|${products.length}`,
     itemKey: 'key',
+    pageMode: true,
   });
   const pageRows = scroll.items;
   const allChecked = pageRows.length > 0 && pageRows.every((row) => selected.has(row.key));
@@ -283,8 +285,19 @@ export default function DocumentPicker({ onMessage }) {
         </table>
       </div>
 
-      {pageRows.length > 0 ? <div ref={scroll.sentinelRef} aria-hidden="true" /> : null}
-      {scroll.reachedEnd ? <p className="page-lead">All products in this view are loaded.</p> : null}
+      {products.length > 0 ? (
+        <ListPager
+          label="Product pages"
+          page={scroll.currentPage}
+          pageCount={scroll.pageCount}
+          start={scroll.rangeStart}
+          end={scroll.rangeEnd}
+          total={scroll.total}
+          pageSize={10}
+          noun="products"
+          onPage={scroll.goToPage}
+        />
+      ) : null}
     </section>
   );
 }

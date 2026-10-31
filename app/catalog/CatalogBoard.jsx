@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import TypeSelect from '../components/TypeSelect';
 import { useBatchScroll } from '../hooks/useBatchScroll';
+import ListPager from '../components/ListPager';
 
 const DATES = [
   { id: 'any', label: 'Any date' },
@@ -168,6 +169,7 @@ export default function CatalogBoard({ runs }) {
     initialTotal: filtered.length,
     resetKey: `${search}|${account}|${status}|${date}|${filtered.length}`,
     itemKey: 'runId',
+    pageMode: true,
   });
   const rows = scroll.items;
 
@@ -312,8 +314,19 @@ export default function CatalogBoard({ runs }) {
         </table>
       </div>
 
-      {rows.length > 0 ? <div ref={scroll.sentinelRef} aria-hidden="true" /> : null}
-      {scroll.reachedEnd ? <p className="page-lead">All catalog runs in this view are loaded.</p> : null}
+      {filtered.length > 0 ? (
+        <ListPager
+          label="Catalog pages"
+          page={scroll.currentPage}
+          pageCount={scroll.pageCount}
+          start={scroll.rangeStart}
+          end={scroll.rangeEnd}
+          total={scroll.total}
+          pageSize={10}
+          noun="runs"
+          onPage={scroll.goToPage}
+        />
+      ) : null}
     </div>
   );
 }

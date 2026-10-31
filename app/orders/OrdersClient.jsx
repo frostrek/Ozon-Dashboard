@@ -2,7 +2,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import TypeSelect from '../components/TypeSelect';
-import { FETCH_SIZE, useBatchScroll } from '../hooks/useBatchScroll';
+import ListPager from '../components/ListPager';
+import { FETCH_SIZE, UI_BATCH, useBatchScroll } from '../hooks/useBatchScroll';
 
 const STATUS_LABEL = {
   AWAITING_PACKAGING: 'Awaiting Packaging',
@@ -265,6 +266,7 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
     initialItems: orders,
     initialTotal: filteredCount,
     resetKey: `${currentStatus}|${currentAccount}|${currentDate}|${currentSearch}`,
+    pageMode: true,
     loadPage: async (page) => {
       const params = new URLSearchParams({
         page: String(page),
@@ -758,8 +760,19 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
         </table>
       </div>
 
-      {visibleOrders.length > 0 ? <div ref={scroll.sentinelRef} aria-hidden="true" /> : null}
-      {scroll.reachedEnd ? <p className="page-lead">All orders in this view are loaded.</p> : null}
+      {scroll.total > 0 ? (
+        <ListPager
+          label="Order pages"
+          page={scroll.currentPage}
+          pageCount={scroll.pageCount}
+          start={scroll.rangeStart}
+          end={scroll.rangeEnd}
+          total={scroll.total}
+          pageSize={UI_BATCH}
+          noun={scroll.total === 1 ? 'order' : 'orders'}
+          onPage={scroll.goToPage}
+        />
+      ) : null}
 
       <OrderDrawer order={selected} onClose={() => setSelected(null)} />
       {statusChange && (

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useBatchScroll } from '../../../hooks/useBatchScroll';
+import ListPager from '../../../components/ListPager';
 
 const STATUS_LABEL = {
   ready: 'Ready to push',
@@ -325,6 +326,7 @@ export default function RunLive({ initial, accounts = [] }) {
     initialTotal: filtered.length,
     resetKey: `${query}|${statusFilter}|${sort}`,
     itemKey: 'asin',
+    pageMode: true,
   });
 
   const total = Number(run.progress?.scraped) || rows.length || 0;
@@ -618,8 +620,19 @@ export default function RunLive({ initial, accounts = [] }) {
             </table>
           </div>
           )}
-          {visible.length > 0 ? <div ref={scroll.sentinelRef} aria-hidden="true" /> : null}
-          {scroll.reachedEnd ? <p className="page-lead">All products in this view are loaded.</p> : null}
+          {filtered.length > 0 ? (
+            <ListPager
+              label="Product pages"
+              page={scroll.currentPage}
+              pageCount={scroll.pageCount}
+              start={scroll.rangeStart}
+              end={scroll.rangeEnd}
+              total={scroll.total}
+              pageSize={10}
+              noun="products"
+              onPage={scroll.goToPage}
+            />
+          ) : null}
       </section>
 
         <section className="card table-card">

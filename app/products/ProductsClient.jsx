@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import ListPager from '../components/ListPager';
 import TypeSelect from '../components/TypeSelect';
 import AddProductForm from './AddProductForm';
 import BulkUpload from './BulkUpload';
@@ -207,7 +208,7 @@ export default function ProductsClient({
   accounts = [],
 }) {
   const [fetched, setFetched] = useState(initialProducts || []);
-  const [visibleCount, setVisibleCount] = useState(Math.min(UI_BATCH, (initialProducts || []).length));
+  const [currentPage, setCurrentPage] = useState(1);
   const [total, setTotal] = useState(initialTotal);
   const [hasMore, setHasMore] = useState(Boolean(initialHasMore) || (initialProducts || []).length < initialTotal);
   const [nextPage, setNextPage] = useState(2);
@@ -224,7 +225,6 @@ export default function ProductsClient({
   const skipFirst = useRef(true);
   const loadingRef = useRef(false);
   const requestId = useRef(0);
-  const sentinelRef = useRef(null);
   const tableWrapRef = useRef(null);
   const latestRef = useRef({});
   const router = useRouter();
@@ -239,7 +239,30 @@ export default function ProductsClient({
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState('');
 
-  latestRef.current = { fetched, visibleCount, total, hasMore, nextPage, activeTab, filterAccount, listFilter, search };
+  latestRef.current = { fetched, total, hasMore, nextPage, activeTab, filterAccount, listFilter, search };
+
+  async function ensureLoadedThrough(needCount) {
+    const target = Math.min(needCount, latestRef.current.total || needCount);
+    let guard = 0;
+    while (latestRef.current.fetched.length < target && latestRef.current.fetched.length < latestRef.current.total && guard < 40) {
+      if (loadingRef.current) {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        guard += 1;
+        continue;
+      }
+      const batch = await fetchBatch(latestRef.current.nextPage, false);
+      if (!batch?.length) break;
+      guard += 1;
+    }
+  }
+
+  async function goToPage(page) {
+    const pages = Math.max(1, Math.ceil((latestRef.current.total || 0) / UI_BATCH));
+    const safe = Math.min(Math.max(1, page), pages);
+    setCurrentPage(safe);
+    await ensureLoadedThrough(safe * UI_BATCH);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
 
   async function fetchBatch(page, replace) {
     if (!replace && loadingRef.current) return null;
@@ -272,7 +295,7 @@ export default function ProductsClient({
       setHasMore(page * FETCH_SIZE < counted && incoming.length > 0);
       setNextPage(page + 1);
       if (data.counts) setCounts(data.counts);
-      if (replace) setVisibleCount(Math.min(UI_BATCH, incoming.length));
+      if (replace) setCurrentPage(1);
       return incoming;
     } catch (error) {
       if (id !== requestId.current) return null;
@@ -286,21 +309,6 @@ export default function ProductsClient({
     }
   }
 
-  function revealNext() {
-    const state = latestRef.current;
-    if (loadingRef.current) return;
-    if (state.visibleCount < state.fetched.length) {
-      setVisibleCount((current) => Math.min(current + UI_BATCH, state.fetched.length));
-      return;
-    }
-    if (!state.hasMore || state.fetched.length >= state.total) return;
-    fetchBatch(state.nextPage, false).then((incoming) => {
-      if (incoming?.length) {
-        setVisibleCount((current) => current + UI_BATCH);
-      }
-    });
-  }
-
   useEffect(() => {
     if (skipFirst.current) {
       skipFirst.current = false;
@@ -308,7 +316,7 @@ export default function ProductsClient({
     }
     const timer = setTimeout(() => {
       setFetched([]);
-      setVisibleCount(0);
+      setCurrentPage(1);
       setHasMore(true);
       setNextPage(2);
       setSelection([]);
@@ -317,35 +325,14 @@ export default function ProductsClient({
     return () => clearTimeout(timer);
   }, [activeTab, filterAccount, listFilter, search]);
 
-  const scrollArmed = useRef(false);
-
-  useEffect(() => {
-    function arm() {
-      scrollArmed.current = true;
-    }
-    window.addEventListener('scroll', arm, { passive: true });
-    const wrap = tableWrapRef.current;
-    wrap?.addEventListener('scroll', arm, { passive: true });
-    return () => {
-      window.removeEventListener('scroll', arm);
-      wrap?.removeEventListener('scroll', arm);
-    };
-  }, []);
-
-  useEffect(() => {
-    const node = sentinelRef.current;
-    if (!node) return undefined;
-    const observer = new IntersectionObserver((entries) => {
-      if (!entries.some((entry) => entry.isIntersecting)) return;
-      if (!scrollArmed.current) return;
-      scrollArmed.current = false;
-      revealNext();
-    }, { rootMargin: '120px' });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [visibleCount, fetched.length, loadingPage, loadError, hasMore]);
-
-  const products = useMemo(() => fetched.slice(0, visibleCount), [fetched, visibleCount]);
+  const pageCount = Math.max(1, Math.ceil(total / UI_BATCH));
+  const safePage = Math.min(currentPage, pageCount);
+  const rangeStart = total === 0 ? 0 : ((safePage - 1) * UI_BATCH) + 1;
+  const rangeEnd = Math.min(safePage * UI_BATCH, total);
+  const products = useMemo(() => {
+    const start = (safePage - 1) * UI_BATCH;
+    return fetched.slice(start, start + UI_BATCH);
+  }, [fetched, safePage]);
 
   const variantGroups = useMemo(() => {
     const groups = {};
@@ -361,7 +348,6 @@ export default function ProductsClient({
   const pageGroups = groupEntries;
   const pageIds = pageGroups.flatMap(([, group]) => group.map((product) => product.id));
   const filtersActive = activeTab !== 'ALL' || filterAccount !== 'all' || listFilter !== 'all';
-  const reachedEnd = !loadingPage && !loadError && fetched.length >= total && visibleCount >= fetched.length && total > 0;
 
   function clearFilters() {
     setActiveTab('ALL');
@@ -533,7 +519,7 @@ export default function ProductsClient({
             role="tab"
             aria-selected={activeTab === tab.id}
             className={activeTab === tab.id ? 'prod-tab is-on' : 'prod-tab'}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => { setActiveTab(tab.id); setCurrentPage(1); }}
           >
             <span className={`prod-dot is-${tab.id.toLowerCase()}`} aria-hidden="true" />
             {tab.label}
@@ -548,7 +534,7 @@ export default function ProductsClient({
           <input
             type="search"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => { setSearch(event.target.value); setCurrentPage(1); }}
             placeholder="Search by name, article code, SKU, or barcode"
             aria-label="Search products"
           />
@@ -558,7 +544,7 @@ export default function ProductsClient({
           label="Account"
           value={filterAccount}
           options={[{ id: 'all', label: 'All accounts' }, ...accounts.map((account) => ({ id: account.id, label: account.name }))]}
-          onChange={setFilterAccount}
+          onChange={(value) => { setFilterAccount(value); setCurrentPage(1); }}
         />
         <TypeSelect
           label="Products"
@@ -570,7 +556,7 @@ export default function ProductsClient({
             { id: 'out', label: 'Out of stock' },
             { id: 'error', label: 'Errors' },
           ]}
-          onChange={setListFilter}
+          onChange={(value) => { setListFilter(value); setCurrentPage(1); }}
         />
         {(filtersActive || search) && (
           <button type="button" className="dash-outline prod-clear" onClick={clearFilters}>Clear filters</button>
@@ -586,7 +572,7 @@ export default function ProductsClient({
         )}
       </div>
 
-      {loadingPage ? <p className="page-lead">Loading the next 100 products…</p> : null}
+      {loadingPage ? <p className="page-lead">Loading products…</p> : null}
       {loadError ? (
         <p className="notice notice-error" role="alert">
           {loadError}{' '}
@@ -701,8 +687,19 @@ export default function ProductsClient({
         </table>
       </div>
 
-      {total > 0 && !empty ? <div ref={sentinelRef} aria-hidden="true" /> : null}
-      {reachedEnd ? <p className="page-lead">All products in this view are loaded.</p> : null}
+      {total > 0 && !empty ? (
+        <ListPager
+          label="Product pages"
+          page={safePage}
+          pageCount={pageCount}
+          start={rangeStart}
+          end={rangeEnd}
+          total={total}
+          pageSize={UI_BATCH}
+          noun="products"
+          onPage={goToPage}
+        />
+      ) : null}
       </section>
 
       <DetailDrawer product={selected} onClose={() => setSelected(null)} onDelete={(product) => { setRemoveError(''); setRemoveTarget(product); }} />

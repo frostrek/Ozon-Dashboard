@@ -11,9 +11,11 @@ export function useBatchScroll({
   resetKey = '',
   itemKey = 'id',
   loadPage,
+  pageMode = false,
 }) {
   const [fetched, setFetched] = useState(initialItems);
   const [visibleCount, setVisibleCount] = useState(Math.min(UI_BATCH, initialItems.length));
+  const [currentPage, setCurrentPage] = useState(1);
   const [total, setTotal] = useState(initialTotal);
   const [nextPage, setNextPage] = useState(2);
   const [loading, setLoading] = useState(false);
@@ -26,32 +28,7 @@ export function useBatchScroll({
   const skipReset = useRef(true);
   const latest = useRef({});
   const hasMore = fetched.length < total;
-  latest.current = { fetched, visibleCount, total, nextPage, hasMore, loadPage, itemKey };
-
-  useEffect(() => {
-    if (skipReset.current) {
-      skipReset.current = false;
-      setFetched(initialItems);
-      setTotal(initialTotal);
-      return;
-    }
-    setFetched(initialItems);
-    setVisibleCount(Math.min(UI_BATCH, initialItems.length));
-    setTotal(initialTotal);
-    setNextPage(2);
-    setError('');
-  }, [resetKey]);
-
-  useEffect(() => {
-    if (loadPage) return;
-    setFetched(initialItems);
-    setTotal(initialItems.length);
-    setVisibleCount((current) => {
-      if (initialItems.length === 0) return 0;
-      if (current < UI_BATCH) return Math.min(UI_BATCH, initialItems.length);
-      return Math.min(current, initialItems.length);
-    });
-  }, [loadPage, initialItems.length]);
+  latest.current = { fetched, visibleCount, total, nextPage, hasMore, loadPage, itemKey, currentPage };
 
   async function fetchBatch(page, replace) {
     if (!loadPage) return null;
@@ -74,7 +51,10 @@ export function useBatchScroll({
       });
       if (Number.isFinite(counted)) setTotal(counted);
       setNextPage(page + 1);
-      if (replace) setVisibleCount(Math.min(UI_BATCH, incoming.length));
+      if (replace) {
+        setVisibleCount(Math.min(UI_BATCH, incoming.length));
+        setCurrentPage(1);
+      }
       return incoming;
     } catch (err) {
       if (id !== requestId.current) return null;
@@ -86,6 +66,29 @@ export function useBatchScroll({
         setLoading(false);
       }
     }
+  }
+
+  async function ensureLoadedThrough(needCount) {
+    const target = Math.min(needCount, latest.current.total || needCount);
+    let guard = 0;
+    while (latest.current.fetched.length < target && latest.current.fetched.length < latest.current.total && guard < 40) {
+      if (loadingRef.current) {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        guard += 1;
+        continue;
+      }
+      const batch = await fetchBatch(latest.current.nextPage, false);
+      if (!batch?.length) break;
+      guard += 1;
+    }
+  }
+
+  async function goToPage(page) {
+    const pages = Math.max(1, Math.ceil((latest.current.total || 0) / UI_BATCH));
+    const safe = Math.min(Math.max(1, page), pages);
+    setCurrentPage(safe);
+    await ensureLoadedThrough(safe * UI_BATCH);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function revealNext() {
@@ -107,6 +110,33 @@ export function useBatchScroll({
   }
 
   useEffect(() => {
+    if (skipReset.current) {
+      skipReset.current = false;
+      setFetched(initialItems);
+      setTotal(initialTotal);
+      return;
+    }
+    setFetched(initialItems);
+    setVisibleCount(Math.min(UI_BATCH, initialItems.length));
+    setTotal(initialTotal);
+    setCurrentPage(1);
+    setNextPage(2);
+    setError('');
+  }, [resetKey]);
+
+  useEffect(() => {
+    if (loadPage) return;
+    setFetched(initialItems);
+    setTotal(initialItems.length);
+    setVisibleCount((current) => {
+      if (initialItems.length === 0) return 0;
+      if (current < UI_BATCH) return Math.min(UI_BATCH, initialItems.length);
+      return Math.min(current, initialItems.length);
+    });
+  }, [loadPage, initialItems.length]);
+
+  useEffect(() => {
+    if (pageMode || !loadPage) return undefined;
     function arm() {
       scrollArmed.current = true;
     }
@@ -117,9 +147,10 @@ export function useBatchScroll({
       window.removeEventListener('scroll', arm);
       wrap?.removeEventListener('scroll', arm);
     };
-  }, []);
+  }, [pageMode, loadPage]);
 
   useEffect(() => {
+    if (pageMode || !loadPage) return undefined;
     const node = sentinelRef.current;
     if (!node) return undefined;
     const observer = new IntersectionObserver((entries) => {
@@ -130,9 +161,21 @@ export function useBatchScroll({
     }, { rootMargin: '120px' });
     observer.observe(node);
     return () => observer.disconnect();
-  }, [visibleCount, fetched.length, loading, error, hasMore]);
+  }, [pageMode, loadPage, visibleCount, fetched.length, loading, error, hasMore]);
 
-  const items = useMemo(() => fetched.slice(0, visibleCount), [fetched, visibleCount]);
+  const pageCount = Math.max(1, Math.ceil(total / UI_BATCH));
+  const safePage = Math.min(currentPage, pageCount);
+  const rangeStart = total === 0 ? 0 : ((safePage - 1) * UI_BATCH) + 1;
+  const rangeEnd = Math.min(safePage * UI_BATCH, total);
+
+  const items = useMemo(() => {
+    if (pageMode) {
+      const start = (safePage - 1) * UI_BATCH;
+      return fetched.slice(start, start + UI_BATCH);
+    }
+    return fetched.slice(0, visibleCount);
+  }, [fetched, visibleCount, pageMode, safePage]);
+
   const reachedEnd = !loading && !error && fetched.length >= total && visibleCount >= fetched.length && total > 0;
 
   return {
@@ -145,5 +188,10 @@ export function useBatchScroll({
     sentinelRef,
     tableWrapRef,
     reachedEnd,
+    currentPage: safePage,
+    pageCount,
+    rangeStart,
+    rangeEnd,
+    goToPage,
   };
 }
