@@ -5,14 +5,13 @@ import ProductsClient from './ProductsClient';
 export const dynamic = 'force-dynamic';
 
 export default async function ProductsPage({ searchParams }) {
-  const page = Math.max(1, Number(searchParams?.page) || 1);
   const tab = searchParams?.tab || 'ALL';
   const account = searchParams?.account || 'all';
   const list = searchParams?.list || 'all';
   const q = searchParams?.q || '';
 
   const [data, counts, accounts] = await Promise.all([
-    listProductsPage({ page, pageSize: PRODUCT_PAGE_SIZE, tab, account, list, q }),
+    listProductsPage({ page: 1, pageSize: PRODUCT_PAGE_SIZE, tab, account, list, q }),
     productTabCounts(account),
     prisma.account.findMany({
       where: { active: true },
@@ -25,8 +24,7 @@ export default async function ProductsPage({ searchParams }) {
     <ProductsClient
       initialProducts={data.products}
       initialTotal={data.total}
-      initialPage={data.page}
-      initialPageCount={data.pageCount}
+      initialHasMore={data.hasMore}
       initialCounts={counts}
       initialTab={tab}
       initialAccount={account}

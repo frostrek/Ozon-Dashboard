@@ -2,7 +2,6 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import ListPager from '../components/ListPager';
 import TypeSelect from '../components/TypeSelect';
 import AddProductForm from './AddProductForm';
 import BulkUpload from './BulkUpload';
@@ -19,7 +18,8 @@ const TABS = [
   { id: 'OUT_OF_STOCK', label: 'Out of stock' },
 ];
 
-const PAGE_SIZE = 100;
+const FETCH_SIZE = 100;
+const UI_BATCH = 10;
 
 function parseJson(value, fallback) {
   try {
@@ -198,8 +198,7 @@ function DetailDrawer({ product, onClose, onDelete }) {
 export default function ProductsClient({
   initialProducts,
   initialTotal = 0,
-  initialPage = 1,
-  initialPageCount = 1,
+  initialHasMore = false,
   initialCounts = {},
   initialTab = 'ALL',
   initialAccount = 'all',
@@ -207,9 +206,11 @@ export default function ProductsClient({
   initialQuery = '',
   accounts = [],
 }) {
-  const [products, setProducts] = useState(initialProducts || []);
+  const [fetched, setFetched] = useState(initialProducts || []);
+  const [visibleCount, setVisibleCount] = useState(Math.min(UI_BATCH, (initialProducts || []).length));
   const [total, setTotal] = useState(initialTotal);
-  const [pageCount, setPageCount] = useState(Math.max(1, initialPageCount));
+  const [hasMore, setHasMore] = useState(Boolean(initialHasMore) || (initialProducts || []).length < initialTotal);
+  const [nextPage, setNextPage] = useState(2);
   const [counts, setCounts] = useState(initialCounts);
   const [activeTab, setActiveTab] = useState(initialTab);
   const [filterAccount, setFilterAccount] = useState(initialAccount);
@@ -218,9 +219,14 @@ export default function ProductsClient({
   const [selected, setSelected] = useState(null);
   const [selection, setSelection] = useState([]);
   const [showVariants, setShowVariants] = useState({});
-  const [page, setPage] = useState(initialPage);
   const [loadingPage, setLoadingPage] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const skipFirst = useRef(true);
+  const loadingRef = useRef(false);
+  const requestId = useRef(0);
+  const sentinelRef = useRef(null);
+  const tableWrapRef = useRef(null);
+  const latestRef = useRef({});
   const router = useRouter();
   const [notice, setNotice] = useState('');
   const [adding, setAdding] = useState(false);
@@ -233,38 +239,113 @@ export default function ProductsClient({
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState('');
 
+  latestRef.current = { fetched, visibleCount, total, hasMore, nextPage, activeTab, filterAccount, listFilter, search };
+
+  async function fetchBatch(page, replace) {
+    if (!replace && loadingRef.current) return null;
+    const id = requestId.current + 1;
+    requestId.current = id;
+    loadingRef.current = true;
+    setLoadingPage(true);
+    setLoadError('');
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(FETCH_SIZE),
+        tab: latestRef.current.activeTab,
+        account: latestRef.current.filterAccount,
+        list: latestRef.current.listFilter,
+        q: String(latestRef.current.search || '').trim(),
+      });
+      const response = await fetch(`/api/products?${params}`, { cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Products could not be loaded.');
+      if (id !== requestId.current) return null;
+      const incoming = Array.isArray(data.products) ? data.products : [];
+      const counted = Number(data.total) || 0;
+      setFetched((previous) => {
+        if (replace) return incoming;
+        const seen = new Set(previous.map((product) => product.id));
+        return [...previous, ...incoming.filter((product) => !seen.has(product.id))];
+      });
+      setTotal(counted);
+      setHasMore(page * FETCH_SIZE < counted && incoming.length > 0);
+      setNextPage(page + 1);
+      if (data.counts) setCounts(data.counts);
+      if (replace) setVisibleCount(Math.min(UI_BATCH, incoming.length));
+      return incoming;
+    } catch (error) {
+      if (id !== requestId.current) return null;
+      setLoadError(error.message || 'Products could not be loaded.');
+      return null;
+    } finally {
+      if (id === requestId.current) {
+        loadingRef.current = false;
+        setLoadingPage(false);
+      }
+    }
+  }
+
+  function revealNext() {
+    const state = latestRef.current;
+    if (loadingRef.current) return;
+    if (state.visibleCount < state.fetched.length) {
+      setVisibleCount((current) => Math.min(current + UI_BATCH, state.fetched.length));
+      return;
+    }
+    if (!state.hasMore || state.fetched.length >= state.total) return;
+    fetchBatch(state.nextPage, false).then((incoming) => {
+      if (incoming?.length) {
+        setVisibleCount((current) => current + UI_BATCH);
+      }
+    });
+  }
+
   useEffect(() => {
     if (skipFirst.current) {
       skipFirst.current = false;
       return undefined;
     }
-    const timer = setTimeout(async () => {
-      setLoadingPage(true);
-      try {
-        const params = new URLSearchParams({
-          page: String(page),
-          pageSize: String(PAGE_SIZE),
-          tab: activeTab,
-          account: filterAccount,
-          list: listFilter,
-          q: search.trim(),
-        });
-        const response = await fetch(`/api/products?${params}`, { cache: 'no-store' });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || 'Products could not be loaded.');
-        setProducts(data.products || []);
-        setTotal(Number(data.total) || 0);
-        setPageCount(Math.max(1, Number(data.pageCount) || 1));
-        if (data.counts) setCounts(data.counts);
-        if (Number(data.page) && Number(data.page) !== page) setPage(Number(data.page));
-      } catch (error) {
-        setNotice(error.message);
-      } finally {
-        setLoadingPage(false);
-      }
+    const timer = setTimeout(() => {
+      setFetched([]);
+      setVisibleCount(0);
+      setHasMore(true);
+      setNextPage(2);
+      setSelection([]);
+      fetchBatch(1, true);
     }, search ? 250 : 0);
     return () => clearTimeout(timer);
-  }, [page, activeTab, filterAccount, listFilter, search]);
+  }, [activeTab, filterAccount, listFilter, search]);
+
+  const scrollArmed = useRef(false);
+
+  useEffect(() => {
+    function arm() {
+      scrollArmed.current = true;
+    }
+    window.addEventListener('scroll', arm, { passive: true });
+    const wrap = tableWrapRef.current;
+    wrap?.addEventListener('scroll', arm, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', arm);
+      wrap?.removeEventListener('scroll', arm);
+    };
+  }, []);
+
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node) return undefined;
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      if (!scrollArmed.current) return;
+      scrollArmed.current = false;
+      revealNext();
+    }, { rootMargin: '120px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [visibleCount, fetched.length, loadingPage, loadError, hasMore]);
+
+  const products = useMemo(() => fetched.slice(0, visibleCount), [fetched, visibleCount]);
 
   const variantGroups = useMemo(() => {
     const groups = {};
@@ -277,19 +358,16 @@ export default function ProductsClient({
   }, [products]);
 
   const groupEntries = Object.entries(variantGroups);
-  const currentPage = Math.min(page, pageCount);
-  const rangeStart = total === 0 ? 0 : ((currentPage - 1) * PAGE_SIZE) + 1;
-  const rangeEnd = Math.min(currentPage * PAGE_SIZE, total);
   const pageGroups = groupEntries;
   const pageIds = pageGroups.flatMap(([, group]) => group.map((product) => product.id));
   const filtersActive = activeTab !== 'ALL' || filterAccount !== 'all' || listFilter !== 'all';
+  const reachedEnd = !loadingPage && !loadError && fetched.length >= total && visibleCount >= fetched.length && total > 0;
 
   function clearFilters() {
     setActiveTab('ALL');
     setFilterAccount('all');
     setListFilter('all');
     setSearch('');
-    setPage(1);
   }
 
   function handleSelectAll(event) {
@@ -363,6 +441,8 @@ export default function ProductsClient({
       if (!res.ok) throw new Error(data.error || 'This product could not be removed from the page.');
       setSelection((current) => current.filter((id) => id !== removeTarget.id));
       setSelected((current) => (current?.id === removeTarget.id ? null : current));
+      setFetched((current) => current.filter((product) => product.id !== removeTarget.id));
+      setTotal((current) => Math.max(0, current - 1));
       setRemoveTarget(null);
       router.refresh();
     } catch (error) {
@@ -377,7 +457,9 @@ export default function ProductsClient({
   }
 
   let empty = null;
-  if (products.length === 0 && total === 0 && !search.trim() && activeTab === 'ALL' && filterAccount === 'all' && listFilter === 'all') {
+  if (loadingPage && products.length === 0) {
+    empty = null;
+  } else if (products.length === 0 && total === 0 && !search.trim() && activeTab === 'ALL' && filterAccount === 'all' && listFilter === 'all') {
     empty = {
       title: 'No products yet',
       text: 'This page only shows products fetched from your Ozon seller account. A catalog push does not fill this list until Ozon has the product and you sync.',
@@ -431,7 +513,7 @@ export default function ProductsClient({
 
       <section className="prod-board">
       <div className="prod-command">
-        <p className="prod-count"><ActionIcon name="box" />{products.length.toLocaleString('en-US')} {products.length === 1 ? 'Product' : 'Products'}</p>
+        <p className="prod-count"><ActionIcon name="box" />{total.toLocaleString('en-US')} {total === 1 ? 'Product' : 'Products'}</p>
         <div className="prod-head-actions">
           <button type="button" className="dash-outline" onClick={syncFromOzon} disabled={syncing}>
             <ActionIcon name="sync" />
@@ -451,7 +533,7 @@ export default function ProductsClient({
             role="tab"
             aria-selected={activeTab === tab.id}
             className={activeTab === tab.id ? 'prod-tab is-on' : 'prod-tab'}
-            onClick={() => { setActiveTab(tab.id); setPage(1); }}
+            onClick={() => setActiveTab(tab.id)}
           >
             <span className={`prod-dot is-${tab.id.toLowerCase()}`} aria-hidden="true" />
             {tab.label}
@@ -466,7 +548,7 @@ export default function ProductsClient({
           <input
             type="search"
             value={search}
-            onChange={(event) => { setSearch(event.target.value); setPage(1); }}
+            onChange={(event) => setSearch(event.target.value)}
             placeholder="Search by name, article code, SKU, or barcode"
             aria-label="Search products"
           />
@@ -476,7 +558,7 @@ export default function ProductsClient({
           label="Account"
           value={filterAccount}
           options={[{ id: 'all', label: 'All accounts' }, ...accounts.map((account) => ({ id: account.id, label: account.name }))]}
-          onChange={(value) => { setFilterAccount(value); setPage(1); }}
+          onChange={setFilterAccount}
         />
         <TypeSelect
           label="Products"
@@ -488,7 +570,7 @@ export default function ProductsClient({
             { id: 'out', label: 'Out of stock' },
             { id: 'error', label: 'Errors' },
           ]}
-          onChange={(value) => { setListFilter(value); setPage(1); }}
+          onChange={setListFilter}
         />
         {(filtersActive || search) && (
           <button type="button" className="dash-outline prod-clear" onClick={clearFilters}>Clear filters</button>
@@ -505,7 +587,19 @@ export default function ProductsClient({
       </div>
 
       {loadingPage ? <p className="page-lead">Loading the next 100 products…</p> : null}
-      <div className="table-wrap prod-table-wrap">
+      {loadError ? (
+        <p className="notice notice-error" role="alert">
+          {loadError}{' '}
+          <button
+            type="button"
+            className="dash-outline"
+            onClick={() => fetchBatch(fetched.length ? latestRef.current.nextPage : 1, fetched.length === 0)}
+          >
+            Retry
+          </button>
+        </p>
+      ) : null}
+      <div className="table-wrap prod-table-wrap" ref={tableWrapRef}>
         <table className="data-table prod-table">
           <thead>
             <tr>
@@ -607,19 +701,8 @@ export default function ProductsClient({
         </table>
       </div>
 
-      {total > 0 && (
-        <ListPager
-          label="Product pages"
-          page={currentPage}
-          pageCount={pageCount}
-          start={rangeStart}
-          end={rangeEnd}
-          total={total}
-          pageSize={PAGE_SIZE}
-          noun="products"
-          onPage={setPage}
-        />
-      )}
+      {total > 0 && !empty ? <div ref={sentinelRef} aria-hidden="true" /> : null}
+      {reachedEnd ? <p className="page-lead">All products in this view are loaded.</p> : null}
       </section>
 
       <DetailDrawer product={selected} onClose={() => setSelected(null)} onDelete={(product) => { setRemoveError(''); setRemoveTarget(product); }} />
