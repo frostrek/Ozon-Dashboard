@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import ListPager from '../components/ListPager';
 import TypeSelect from '../components/TypeSelect';
+import { FETCH_SIZE, UI_BATCH, useBatchScroll } from '../hooks/useBatchScroll';
 
 function statusLabel(status, cancelled) {
   if (cancelled) return 'Cancelled';
@@ -126,10 +127,6 @@ export default function PipelineClient({ accounts, initialAccountId }) {
   const [logs, setLogs] = useState('');
   const [copied, setCopied] = useState(false);
   const [orderPicture, setOrderPicture] = useState(null);
-  const [runs, setRuns] = useState([]);
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [pageSize, setPageSize] = useState(8);
   const [lastRun, setLastRun] = useState(null);
   const [lastSuccess, setLastSuccess] = useState(null);
   const [runningRun, setRunningRun] = useState(null);
@@ -139,44 +136,61 @@ export default function PipelineClient({ accounts, initialAccountId }) {
   const [outcome, setOutcome] = useState(null);
   const logRef = useRef(null);
   const sourceRef = useRef(null);
-  const pageRef = useRef(1);
   const accountRef = useRef(accountId);
-  pageRef.current = page;
+  const pendingFinishRunId = useRef('');
   accountRef.current = accountId;
 
-  async function loadRuns(nextPage = pageRef.current, nextAccount = accountRef.current) {
-    const params = new URLSearchParams({
-      page: String(nextPage),
-      pageSize: '8',
-    });
-    if (nextAccount) params.set('accountId', nextAccount);
-    const res = await fetch(`/api/pipeline/runs?${params}`, { cache: 'no-store' });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Could not load run history.');
-    setRuns(data.runs || []);
-    setTotal(Number(data.total) || 0);
-    setPageSize(Number(data.pageSize) || 8);
-    setPage(Number(data.page) || nextPage);
+  function applyRunMeta(data) {
     setLastRun(data.lastRun || null);
     setLastSuccess(data.lastSuccess || null);
     setRunningRun(data.running || null);
     setLogs((current) => current || data.running?.log_excerpt || data.lastRun?.log_excerpt || '');
+    const finishedId = pendingFinishRunId.current;
+    if (finishedId && data.lastRun?.id === finishedId) {
+      setOutcome(data.lastRun);
+      pendingFinishRunId.current = '';
+    }
     setHistoryState('ready');
     setHistoryError('');
-    return data;
+  }
+
+  const scroll = useBatchScroll({
+    initialItems: [],
+    initialTotal: 0,
+    resetKey: accountId,
+    itemKey: 'id',
+    pageMode: true,
+    loadPage: async (page) => {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(FETCH_SIZE),
+      });
+      if (accountRef.current) params.set('accountId', accountRef.current);
+      const res = await fetch(`/api/pipeline/runs?${params}`, { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not load run history.');
+      if (page === 1) applyRunMeta(data);
+      return { items: data.runs || [], total: Number(data.total) || 0 };
+    },
+  });
+
+  async function refreshHistory() {
+    try {
+      setHistoryState('loading');
+      await scroll.refresh();
+    } catch (err) {
+      setHistoryState('error');
+      setHistoryError(err.message || 'Could not load run history.');
+    }
   }
 
   useEffect(() => {
-    let cancelled = false;
-    loadRuns(page, accountId).catch((err) => {
-      if (cancelled) return;
+    if (scroll.loading && scroll.items.length === 0) setHistoryState('loading');
+    if (!scroll.loading && scroll.error && scroll.items.length === 0) {
       setHistoryState('error');
-      setHistoryError(err.message);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [page, accountId]);
+      setHistoryError(scroll.error);
+    }
+  }, [scroll.loading, scroll.error, scroll.items.length]);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -185,7 +199,7 @@ export default function PipelineClient({ accounts, initialAccountId }) {
   useEffect(() => {
     if (!activeRunId) return undefined;
     const timer = setInterval(() => {
-      loadRuns(pageRef.current, accountRef.current).catch(() => {});
+      scroll.refresh().catch(() => {});
     }, 5000);
     return () => clearInterval(timer);
   }, [activeRunId]);
@@ -222,10 +236,8 @@ export default function PipelineClient({ accounts, initialAccountId }) {
       source.close();
       if (sourceRef.current === source) sourceRef.current = null;
       setActiveRunId('');
-      loadRuns().then((data) => {
-        const finished = data?.lastRun?.id === runId ? data.lastRun : null;
-        if (finished) setOutcome(finished);
-      }).catch(() => {});
+      pendingFinishRunId.current = runId;
+      scroll.refresh().catch(() => {});
     });
     source.addEventListener('error', (event) => {
       if (!event.data) return;
@@ -263,7 +275,7 @@ export default function PipelineClient({ accounts, initialAccountId }) {
       }
       setActiveRunId('');
       if (data.message) setError(data.message);
-      await loadRuns();
+      await scroll.refresh();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -284,7 +296,7 @@ export default function PipelineClient({ accounts, initialAccountId }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not start the pipeline');
       watchRun(data.runId);
-      await loadRuns();
+      await scroll.refresh();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -304,13 +316,10 @@ export default function PipelineClient({ accounts, initialAccountId }) {
   }
 
   const logLines = logs ? logs.split('\n').filter((line) => line.length > 0) : [];
-  const pageCount = Math.max(1, Math.ceil(total / pageSize) || 1);
-  const rangeStart = total === 0 ? 0 : ((page - 1) * pageSize) + 1;
-  const rangeEnd = Math.min(page * pageSize, total);
   const liveState = starting || activeRunId || runningForAccount ? 'running' : 'idle';
   const selected = accounts.find((account) => account.id === accountId);
   const settled = liveState === 'running' || outcome?.account_id !== accountId ? null : outcome;
-  const settledError = settled ? (runs.find((run) => run.id === settled.id)?.error_message || '') : '';
+  const settledError = settled ? (scroll.loaded.find((run) => run.id === settled.id)?.error_message || '') : '';
   return (
     <div className="pipe-page">
       <header className="pipe-head">
@@ -512,13 +521,13 @@ export default function PipelineClient({ accounts, initialAccountId }) {
               {historyState === 'loading' && (
                 <tr><td colSpan="8" className="empty-cell">Loading runs...</td></tr>
               )}
-              {historyState === 'ready' && runs.length === 0 && (
+              {historyState === 'ready' && scroll.items.length === 0 && (
                 <tr><td colSpan="8" className="empty-cell">No runs yet. Start a pipeline to see history here.</td></tr>
               )}
-              {historyState === 'error' && runs.length === 0 && (
+              {historyState === 'error' && scroll.items.length === 0 && (
                 <tr><td colSpan="8" className="empty-cell">Run history could not be loaded.</td></tr>
               )}
-              {runs.map((run) => {
+              {scroll.items.map((run) => {
                 const message = run.error_message || '';
                 const short = message.length > 72 ? `${message.slice(0, 72)}…` : message;
                 return (
@@ -551,17 +560,18 @@ export default function PipelineClient({ accounts, initialAccountId }) {
             </tbody>
           </table>
         </div>
-        {historyState === 'ready' && total > 0 && (
+        {scroll.error ? <p className="notice notice-error" role="alert">{scroll.error} <button type="button" className="dash-outline" onClick={scroll.retry}>Retry</button></p> : null}
+        {historyState === 'ready' && scroll.total > 0 && (
           <ListPager
             label="Run history pages"
-            page={page}
-            pageCount={pageCount}
-            start={rangeStart}
-            end={rangeEnd}
-            total={total}
-            pageSize={pageSize}
+            page={scroll.currentPage}
+            pageCount={scroll.pageCount}
+            start={scroll.rangeStart}
+            end={scroll.rangeEnd}
+            total={scroll.total}
+            pageSize={UI_BATCH}
             noun="runs"
-            onPage={setPage}
+            onPage={scroll.goToPage}
           />
         )}
       </section>

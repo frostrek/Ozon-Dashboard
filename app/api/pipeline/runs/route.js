@@ -28,7 +28,7 @@ export async function GET(req) {
   }
   try {
   const url = new URL(req.url);
-  const pageSize = Math.min(50, Math.max(1, Number(url.searchParams.get('pageSize')) || 8));
+  const pageSize = Math.min(100, Math.max(1, Number(url.searchParams.get('pageSize')) || 100));
   let page = Math.max(1, Number(url.searchParams.get('page')) || 1);
   const accountId = String(url.searchParams.get('accountId') || '');
 

@@ -114,6 +114,9 @@ export function useBatchScroll({
       skipReset.current = false;
       setFetched(initialItems);
       setTotal(initialTotal);
+      if (loadPage && initialItems.length === 0) {
+        fetchBatch(1, true);
+      }
       return;
     }
     setFetched(initialItems);
@@ -122,6 +125,9 @@ export function useBatchScroll({
     setCurrentPage(1);
     setNextPage(2);
     setError('');
+    if (loadPage) {
+      fetchBatch(1, true);
+    }
   }, [resetKey]);
 
   useEffect(() => {
@@ -193,5 +199,6 @@ export function useBatchScroll({
     rangeStart,
     rangeEnd,
     goToPage,
+    refresh: () => fetchBatch(1, true),
   };
 }
