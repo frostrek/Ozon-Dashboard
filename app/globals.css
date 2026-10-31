@@ -2602,6 +2602,34 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 1.2;
+  min-width: 0;
+}
+
+.pipe-range .field-help {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.list-pages-rc.rc-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+}
+
+.list-pages-rc.rc-pagination li {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.list-pages-rc.rc-pagination li::before {
+  display: none;
 }
 
 .pipe-range-btns {
@@ -2965,6 +2993,11 @@ textarea {
 }
 
 .list-pages .is-disabled .pipe-page-btn {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.pipe-page-btn.is-disabled {
   opacity: 0.45;
   pointer-events: none;
 }

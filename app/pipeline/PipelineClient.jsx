@@ -141,18 +141,14 @@ export default function PipelineClient({ accounts, initialAccountId }) {
   const sourceRef = useRef(null);
   const pageRef = useRef(1);
   const accountRef = useRef(accountId);
-  const rangeRef = useRef({ dateFrom, dateTo });
   pageRef.current = page;
   accountRef.current = accountId;
-  rangeRef.current = { dateFrom, dateTo };
 
   async function loadRuns(nextPage = pageRef.current, nextAccount = accountRef.current) {
     const params = new URLSearchParams({
       page: String(nextPage),
       pageSize: '8',
     });
-    if (rangeRef.current.dateFrom) params.set('from', rangeRef.current.dateFrom);
-    if (rangeRef.current.dateTo) params.set('to', rangeRef.current.dateTo);
     if (nextAccount) params.set('accountId', nextAccount);
     const res = await fetch(`/api/pipeline/runs?${params}`, { cache: 'no-store' });
     const data = await res.json().catch(() => ({}));
@@ -180,7 +176,7 @@ export default function PipelineClient({ accounts, initialAccountId }) {
     return () => {
       cancelled = true;
     };
-  }, [page, accountId, dateFrom, dateTo]);
+  }, [page, accountId]);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -335,7 +331,8 @@ export default function PipelineClient({ accounts, initialAccountId }) {
             />
           </label>
           <div className="pipe-range">
-            <span className="field-label">Date range</span>
+            <span className="field-label">Order date range</span>
+            <span className="field-help">Used when you start the pipeline. Run history below is not filtered by these dates.</span>
             <div className="pipe-range-btns">
               {[
                 { id: 'today', label: 'Today', from: localDay(), to: localDay() },
@@ -349,7 +346,6 @@ export default function PipelineClient({ accounts, initialAccountId }) {
                   onClick={() => {
                     setDateFrom(item.from);
                     setDateTo(item.to);
-                    setPage(1);
                   }}
                 >
                   {item.label}
@@ -358,12 +354,12 @@ export default function PipelineClient({ accounts, initialAccountId }) {
             </div>
           </div>
           <label className="field" htmlFor="pipeline-from">
-            <span className="field-label">From date</span>
-            <input id="pipeline-from" type="date" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setPage(1); }} />
+            <span className="field-label">Orders from</span>
+            <input id="pipeline-from" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
           </label>
           <label className="field" htmlFor="pipeline-to">
-            <span className="field-label">End date</span>
-            <input id="pipeline-to" type="date" value={dateTo} onChange={(event) => { setDateTo(event.target.value); setPage(1); }} />
+            <span className="field-label">Orders through</span>
+            <input id="pipeline-to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
           </label>
           <button
             type="button"
@@ -563,6 +559,7 @@ export default function PipelineClient({ accounts, initialAccountId }) {
             start={rangeStart}
             end={rangeEnd}
             total={total}
+            pageSize={pageSize}
             noun="runs"
             onPage={setPage}
           />

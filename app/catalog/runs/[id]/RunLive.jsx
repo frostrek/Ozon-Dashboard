@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import ListPager from '../../../components/ListPager';
 
 const PAGE_SIZE = 15;
 
@@ -12,21 +13,6 @@ const STATUS_LABEL = {
   review: 'Needs review',
   scraped: 'Scraped',
 };
-
-function pageWindow(current, count) {
-  if (count <= 7) return Array.from({ length: count }, (_, index) => index + 1);
-  const numbers = new Set([1, count]);
-  const start = current <= 4 ? 1 : current >= count - 3 ? Math.max(1, count - 4) : current - 2;
-  const end = current <= 4 ? Math.min(5, count) : current >= count - 3 ? count : current + 2;
-  for (let number = start; number <= end; number += 1) numbers.add(number);
-  const sorted = [...numbers].sort((left, right) => left - right);
-  const items = [];
-  sorted.forEach((number, index) => {
-    if (index > 0 && number - sorted[index - 1] > 1) items.push(`gap-${number}`);
-    items.push(number);
-  });
-  return items;
-}
 
 function when(value) {
   if (!value) return '—';
@@ -632,20 +618,17 @@ export default function RunLive({ initial, accounts = [] }) {
             </table>
           </div>
           )}
-          <footer className="pager scraped-pager">
-            <span>Showing {filtered.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filtered.length)} of {filtered.length}</span>
-            <div>
-              <button type="button" className="pipe-page-btn" onClick={() => setPage(1)} disabled={safePage <= 1} aria-label="First page">«</button>
-              <button type="button" className="pipe-page-btn" onClick={() => setPage(safePage - 1)} disabled={safePage <= 1}>Previous</button>
-              {pageWindow(safePage, pageCount).map((item) => (
-                typeof item === 'number' ? (
-                  <button key={item} type="button" className={item === safePage ? 'pipe-page-btn is-current' : 'pipe-page-btn'} onClick={() => setPage(item)} aria-current={item === safePage ? 'page' : undefined}>{item}</button>
-                ) : <span key={item} className="pipe-page-gap">…</span>
-              ))}
-              <button type="button" className="pipe-page-btn" onClick={() => setPage(safePage + 1)} disabled={safePage >= pageCount}>Next</button>
-              <button type="button" className="pipe-page-btn" onClick={() => setPage(pageCount)} disabled={safePage >= pageCount} aria-label="Last page">»</button>
-            </div>
-          </footer>
+          <ListPager
+            label="Product pages"
+            page={safePage}
+            pageCount={pageCount}
+            start={filtered.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1}
+            end={Math.min(safePage * PAGE_SIZE, filtered.length)}
+            total={filtered.length}
+            pageSize={PAGE_SIZE}
+            noun="products"
+            onPage={setPage}
+          />
       </section>
 
         <section className="card table-card">
