@@ -31,12 +31,25 @@ export async function GET(req) {
   const pageSize = Math.min(50, Math.max(1, Number(url.searchParams.get('pageSize')) || 8));
   let page = Math.max(1, Number(url.searchParams.get('page')) || 1);
   const accountId = String(url.searchParams.get('accountId') || '');
+  const from = String(url.searchParams.get('from') || '');
+  const to = String(url.searchParams.get('to') || '');
+  const where = {};
+  if (/^\d{4}-\d{2}-\d{2}$/.test(from) || /^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    where.start_time = {};
+    if (/^\d{4}-\d{2}-\d{2}$/.test(from)) where.start_time.gte = new Date(`${from}T00:00:00.000Z`);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      const end = new Date(`${to}T00:00:00.000Z`);
+      end.setUTCDate(end.getUTCDate() + 1);
+      where.start_time.lt = end;
+    }
+  }
 
-  const total = await prisma.pipelineRun.count();
+  const total = await prisma.pipelineRun.count({ where });
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   if (page > pageCount) page = pageCount;
 
   const runs = await prisma.pipelineRun.findMany({
+    where,
     include: { account: { select: { id: true, name: true } } },
     orderBy: { start_time: 'desc' },
     skip: (page - 1) * pageSize,

@@ -37,6 +37,7 @@
     "puppeteer-core": "^24.37.5",
     "react": "18",
     "react-dom": "18",
+    "react-paginate": "^8.3.0",
     "recharts": "^3.8.1",
     "sharp": "^0.34.5",
     "string-similarity": "^4.0.4",

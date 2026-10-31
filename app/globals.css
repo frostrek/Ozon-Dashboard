@@ -2598,6 +2598,19 @@ textarea {
   padding: 0 10px;
 }
 
+.pipe-range {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pipe-range-btns {
+  display: flex;
+  gap: 6px;
+  min-height: 42px;
+  align-items: center;
+}
+
 .pipe-start-btn {
   height: 42px;
   white-space: nowrap;
@@ -2929,10 +2942,31 @@ textarea {
   font-size: 13px;
 }
 
-.pipe-pager > div {
+.pipe-pager > div,
+.list-pages {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.list-pages li {
+  list-style: none;
+}
+
+.list-pages a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.list-pages .is-disabled .pipe-page-btn {
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 .pipe-page-btn {

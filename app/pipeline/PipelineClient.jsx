@@ -21,6 +21,18 @@ function badgeClass(status, cancelled) {
   return 'pipe-badge pipe-badge-muted';
 }
 
+function localDay(date = new Date()) {
+  const shifted = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return shifted.toISOString().slice(0, 10);
+}
+
+function shiftDay(iso, days) {
+  const [year, month, day] = String(iso).split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 function formatWhen(value) {
   if (!value) return '—';
   const date = new Date(value);
@@ -121,26 +133,26 @@ export default function PipelineClient({ accounts, initialAccountId }) {
   const [lastRun, setLastRun] = useState(null);
   const [lastSuccess, setLastSuccess] = useState(null);
   const [runningRun, setRunningRun] = useState(null);
-  const [dateFrom, setDateFrom] = useState(() => {
-    const date = new Date();
-    date.setDate(date.getDate() - 30);
-    return date.toISOString().slice(0, 10);
-  });
-  const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dateFrom, setDateFrom] = useState(() => shiftDay(localDay(), -29));
+  const [dateTo, setDateTo] = useState(() => localDay());
   const [errorRun, setErrorRun] = useState(null);
   const [outcome, setOutcome] = useState(null);
   const logRef = useRef(null);
   const sourceRef = useRef(null);
   const pageRef = useRef(1);
   const accountRef = useRef(accountId);
+  const rangeRef = useRef({ dateFrom, dateTo });
   pageRef.current = page;
   accountRef.current = accountId;
+  rangeRef.current = { dateFrom, dateTo };
 
   async function loadRuns(nextPage = pageRef.current, nextAccount = accountRef.current) {
     const params = new URLSearchParams({
       page: String(nextPage),
       pageSize: '8',
     });
+    if (rangeRef.current.dateFrom) params.set('from', rangeRef.current.dateFrom);
+    if (rangeRef.current.dateTo) params.set('to', rangeRef.current.dateTo);
     if (nextAccount) params.set('accountId', nextAccount);
     const res = await fetch(`/api/pipeline/runs?${params}`, { cache: 'no-store' });
     const data = await res.json().catch(() => ({}));
@@ -168,7 +180,7 @@ export default function PipelineClient({ accounts, initialAccountId }) {
     return () => {
       cancelled = true;
     };
-  }, [page, accountId]);
+  }, [page, accountId, dateFrom, dateTo]);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -322,13 +334,36 @@ export default function PipelineClient({ accounts, initialAccountId }) {
               onChange={setAccountId}
             />
           </label>
+          <div className="pipe-range">
+            <span className="field-label">Date range</span>
+            <div className="pipe-range-btns">
+              {[
+                { id: 'today', label: 'Today', from: localDay(), to: localDay() },
+                { id: '7', label: '7 days', from: shiftDay(localDay(), -6), to: localDay() },
+                { id: '30', label: '30 days', from: shiftDay(localDay(), -29), to: localDay() },
+              ].map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={dateFrom === item.from && dateTo === item.to ? 'pipe-page-btn is-current' : 'pipe-page-btn'}
+                  onClick={() => {
+                    setDateFrom(item.from);
+                    setDateTo(item.to);
+                    setPage(1);
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <label className="field" htmlFor="pipeline-from">
             <span className="field-label">From date</span>
-            <input id="pipeline-from" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
+            <input id="pipeline-from" type="date" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setPage(1); }} />
           </label>
           <label className="field" htmlFor="pipeline-to">
             <span className="field-label">End date</span>
-            <input id="pipeline-to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
+            <input id="pipeline-to" type="date" value={dateTo} onChange={(event) => { setDateTo(event.target.value); setPage(1); }} />
           </label>
           <button
             type="button"

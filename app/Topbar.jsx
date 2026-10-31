@@ -15,8 +15,6 @@ const PAGES = [
   { href: '/reports', label: 'Reports' },
   { href: '/logs', label: 'Logs' },
   { href: '/settings', label: 'Settings' },
-  { href: '/ai-settings', label: 'AI Settings' },
-  { href: '/listing-optimization', label: 'AI Listing Auditor' },
 ];
 
 function initials(name) {

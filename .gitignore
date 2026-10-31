@@ -8,8 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
-# Logs
-logs
+# Logs (root only — do not ignore app/logs route)
+/logs
 *.log
 npm-debug.log*
 yarn-debug.log*

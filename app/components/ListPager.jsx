@@ -1,37 +1,6 @@
 'use client';
 
-import Link from 'next/link';
-
-function pageItems(current, count) {
-  const pageCount = Math.max(1, Number(count) || 1);
-  const page = Math.min(Math.max(1, Number(current) || 1), pageCount);
-  if (pageCount <= 7) return Array.from({ length: pageCount }, (_, index) => index + 1);
-  const numbers = [1, pageCount, page - 1, page, page + 1].filter((number) => number >= 1 && number <= pageCount);
-  const unique = [...new Set(numbers)].sort((left, right) => left - right);
-  const items = [];
-  unique.forEach((number, index) => {
-    if (index > 0 && number - unique[index - 1] > 1) items.push(`gap-${number}`);
-    items.push(number);
-  });
-  return items;
-}
-
-function PageControl({ href, onClick, disabled, current, children, label }) {
-  const className = `pipe-page-btn${current ? ' is-current' : ''}${disabled ? ' is-disabled' : ''}`;
-  if (disabled) return <span className={className} aria-hidden="true">{children}</span>;
-  if (href) {
-    return (
-      <Link className={className} href={href} aria-label={label} aria-current={current ? 'page' : undefined}>
-        {children}
-      </Link>
-    );
-  }
-  return (
-    <button type="button" className={className} onClick={onClick} aria-label={label} aria-current={current ? 'page' : undefined}>
-      {children}
-    </button>
-  );
-}
+import ReactPaginate from 'react-paginate';
 
 function queryHref(base, query, page, pageSize, defaultPageSize) {
   const params = new URLSearchParams();
@@ -84,22 +53,35 @@ export default function ListPager({
           <span>Rows per page</span>
           {pageSizes.map((size) => {
             const className = Number(pageSize) === Number(size) ? 'pipe-page-btn is-current' : 'pipe-page-btn';
-            if (sizeHref) return <Link key={size} className={className} href={sizeHref(size)}>{size}</Link>;
+            if (sizeHref) return <a key={size} className={className} href={sizeHref(size)}>{size}</a>;
             return <button key={size} type="button" className={className} onClick={() => onPageSize?.(size)}>{size}</button>;
           })}
         </div>
       ) : null}
-      <div className="list-pages">
-        <PageControl href={pageHref?.(1)} onClick={() => onPage?.(1)} disabled={current <= 1} label="First page">«</PageControl>
-        <PageControl href={pageHref?.(current - 1)} onClick={() => onPage?.(current - 1)} disabled={current <= 1}>Previous</PageControl>
-        {pageItems(current, pages).map((item) => (
-          typeof item === 'number'
-            ? <PageControl key={item} href={pageHref?.(item)} onClick={() => onPage?.(item)} current={item === current}>{item}</PageControl>
-            : <span key={item} className="pipe-page-gap">…</span>
-        ))}
-        <PageControl href={pageHref?.(current + 1)} onClick={() => onPage?.(current + 1)} disabled={current >= pages}>Next</PageControl>
-        <PageControl href={pageHref?.(pages)} onClick={() => onPage?.(pages)} disabled={current >= pages} label="Last page">»</PageControl>
-      </div>
+      <ReactPaginate
+        forcePage={current - 1}
+        pageCount={pages}
+        disableInitialCallback
+        pageRangeDisplayed={3}
+        marginPagesDisplayed={1}
+        breakLabel="…"
+        previousLabel="Previous"
+        nextLabel="Next"
+        onPageChange={({ selected }) => {
+          const next = selected + 1;
+          if (next !== current) onPage?.(next);
+        }}
+        hrefBuilder={pageHref ? (pageNumber) => pageHref(pageNumber) : undefined}
+        hrefAllControls={Boolean(pageHref)}
+        renderOnZeroPageCount={null}
+        containerClassName="list-pages"
+        pageLinkClassName="pipe-page-btn"
+        previousLinkClassName="pipe-page-btn"
+        nextLinkClassName="pipe-page-btn"
+        breakLinkClassName="pipe-page-gap"
+        activeLinkClassName="is-current"
+        disabledClassName="is-disabled"
+      />
     </nav>
   );
 }
