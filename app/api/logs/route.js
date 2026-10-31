@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { listLogRunsPage, LOG_PAGE_SIZE } from '../../../../lib/logs/listLogs';
+import { listLogRunsPage, LOG_PAGE_SIZE } from '../../../lib/logs/listLogs';
 
 export const dynamic = 'force-dynamic';
 
