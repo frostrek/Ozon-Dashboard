@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { replaceQuery } from '../lib/replaceQuery';
 import ListPager from '../components/ListPager';
 import TypeSelect from '../components/TypeSelect';
 import AddProductForm from './AddProductForm';
@@ -320,6 +321,12 @@ export default function ProductsClient({
       setHasMore(true);
       setNextPage(2);
       setSelection([]);
+      replaceQuery('/products', {
+        tab: activeTab === 'ALL' ? '' : activeTab,
+        account: filterAccount === 'all' ? '' : filterAccount,
+        list: listFilter === 'all' ? '' : listFilter,
+        q: search,
+      });
       fetchBatch(1, true);
     }, search ? 250 : 0);
     return () => clearTimeout(timer);

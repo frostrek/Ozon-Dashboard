@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import TypeSelect from '../components/TypeSelect';
 import ListPager from '../components/ListPager';
 import { FETCH_SIZE, UI_BATCH, useBatchScroll } from '../hooks/useBatchScroll';
+import { replaceQuery } from '../lib/replaceQuery';
 
 const STATUS_LABEL = {
   AWAITING_PACKAGING: 'Awaiting Packaging',
@@ -262,35 +263,47 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
   const [statusChange, setStatusChange] = useState(null);
   const [statusBusy, setStatusBusy] = useState(false);
   const [statusNote, setStatusNote] = useState('');
+  const [statusFilter, setStatusFilter] = useState(currentStatus || 'ALL');
+  const [accountFilter, setAccountFilter] = useState(currentAccount || 'all');
+  const [dateFilter, setDateFilter] = useState(currentDate || 'all');
+  const [searchFilter, setSearchFilter] = useState(currentSearch || '');
+  const [counts, setCounts] = useState(statusCounts || {});
   const scroll = useBatchScroll({
     initialItems: orders,
     initialTotal: filteredCount,
-    resetKey: `${currentStatus}|${currentAccount}|${currentDate}|${currentSearch}`,
+    resetKey: `${statusFilter}|${accountFilter}|${dateFilter}|${searchFilter}`,
     pageMode: true,
     loadPage: async (page) => {
       const params = new URLSearchParams({
         page: String(page),
         pageSize: String(FETCH_SIZE),
-        status: currentStatus || 'ALL',
-        account: currentAccount || 'all',
-        date: currentDate || 'all',
-        q: currentSearch || '',
+        status: statusFilter || 'ALL',
+        account: accountFilter || 'all',
+        date: dateFilter || 'all',
+        q: searchFilter || '',
       });
       const response = await fetch(`/api/orders?${params}`, { cache: 'no-store' });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Orders could not be loaded.');
+      if (data.statusCounts) setCounts(data.statusCounts);
       return { items: data.orders || [], total: Number(data.filteredCount) || 0 };
     },
   });
 
-  const buildUrl = (params) => {
-    const u = new URLSearchParams();
-    if (params.status  ?? currentStatus)  u.set('status',  params.status  ?? currentStatus);
-    if (params.account ?? currentAccount) u.set('account', params.account ?? currentAccount);
-    if (params.date    ?? currentDate)    u.set('date',    params.date    ?? currentDate);
-    if (params.q       ?? currentSearch)  u.set('q',       params.q       ?? currentSearch);
-    return `/orders?${u.toString()}`;
-  };
+  function applyFilters(patch) {
+    if (patch.status != null) setStatusFilter(patch.status);
+    if (patch.account != null) setAccountFilter(patch.account);
+    if (patch.date != null) setDateFilter(patch.date);
+    if (patch.q != null) setSearchFilter(patch.q);
+  }
+
+  function clearFilters() {
+    setStatusFilter('ALL');
+    setAccountFilter('all');
+    setDateFilter('all');
+    setSearchFilter('');
+    setQuery('');
+  }
 
   const STATUS_TABS = [
     { key: 'ALL',                label: 'All Orders'         },
@@ -318,11 +331,16 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
   const [menuId, setMenuId] = useState(null);
 
   useEffect(() => {
-    setQuery(currentSearch || '');
     setSearching(false);
     setSelectedIds(new Set());
     setMenuId(null);
-  }, [currentSearch, currentStatus, currentAccount, currentDate]);
+    replaceQuery('/orders', {
+      status: statusFilter === 'ALL' ? '' : statusFilter,
+      account: accountFilter === 'all' ? '' : accountFilter,
+      date: dateFilter === 'all' ? '' : dateFilter,
+      q: searchFilter,
+    });
+  }, [searchFilter, statusFilter, accountFilter, dateFilter]);
   
   const toggleAll = () => {
       const pageIds = visibleOrders.map((order) => order.id);
@@ -529,17 +547,17 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
       </header>
       <div className="orders-tabs">
         {STATUS_TABS.map(tab => {
-          const active = (currentStatus || 'ALL') === tab.key;
-          const count = tab.key === 'ALL' ? statusCounts._total : (statusCounts[tab.key] || 0);
+          const active = (statusFilter || 'ALL') === tab.key;
+          const count = tab.key === 'ALL' ? counts._total : (counts[tab.key] || 0);
           return (
-            <a key={tab.key} href={buildUrl({ status: tab.key })} className={`orders-tab${active ? ' is-on' : ''}${tab.key === 'DELIVERED' ? ' is-delivered' : ''}${tab.key === 'CANCELLED' ? ' is-cancelled' : ''}`}>
+            <button key={tab.key} type="button" onClick={() => applyFilters({ status: tab.key })} className={`orders-tab${active ? ' is-on' : ''}${tab.key === 'DELIVERED' ? ' is-delivered' : ''}${tab.key === 'CANCELLED' ? ' is-cancelled' : ''}`}>
               <TabIcon name={tab.key} />
               <span className="orders-tab-copy">
                 <span>{tab.label}</span>
                 {active ? null : <strong>{Number(count).toLocaleString('en-US')}</strong>}
               </span>
               {active ? <em>{Number(count).toLocaleString('en-US')}</em> : null}
-            </a>
+            </button>
           );
         })}
       </div>
@@ -547,12 +565,12 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
       <div className="orders-filters">
         <div className="orders-dates">
           {DATE_FILTERS.map(df => {
-            const on = (currentDate || 'all') === df.key;
+            const on = (dateFilter || 'all') === df.key;
             return (
-              <a key={df.key} href={buildUrl({ date: df.key })} className={on ? 'is-on' : ''}>
+              <button key={df.key} type="button" onClick={() => applyFilters({ date: df.key })} className={on ? 'is-on' : ''}>
                 {on ? <Icon><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M8 3v4M16 3v4M4 10h16" /></Icon> : null}
                 {df.label}
-              </a>
+              </button>
             );
           })}
         </div>
@@ -561,21 +579,18 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
           <Icon><path d="M12 3 4 7l8 4 8-4-8-4Z" /><path d="m4 12 8 4 8-4" /><path d="m4 17 8 4 8-4" /></Icon>
           <TypeSelect
             label="Account"
-            value={currentAccount || 'all'}
+            value={accountFilter || 'all'}
             options={[{ id: 'all', label: 'All Accounts' }, ...accounts.map((account) => ({ id: account.id, label: account.name }))]}
-            onChange={(next) => { window.location.href = buildUrl({ account: next, page: '1' }); }}
+            onChange={(next) => applyFilters({ account: next })}
           />
         </label>
 
-        <form method="get" action="/orders" className="orders-search" onSubmit={() => setSearching(true)}>
-          <input type="hidden" name="status" value={currentStatus || 'ALL'} />
-          <input type="hidden" name="date" value={currentDate || 'all'} />
-          <input type="hidden" name="account" value={currentAccount || 'all'} />
+        <form className="orders-search" onSubmit={(event) => { event.preventDefault(); setSearching(true); applyFilters({ q: query.trim() }); }}>
           <span className="orders-search-field">
             <Icon><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4" /></Icon>
             <input name="q" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search posting #, SKU, title..." aria-label="Search orders" />
             {query ? (
-              <button type="button" className="orders-clear" aria-label="Clear search" onClick={() => { setQuery(''); if (currentSearch) window.location.href = buildUrl({ q: '', page: '1' }); }}>×</button>
+              <button type="button" className="orders-clear" aria-label="Clear search" onClick={() => { setQuery(''); applyFilters({ q: '' }); }}>×</button>
             ) : null}
           </span>
           <button type="submit" className="dash-primary" disabled={searching}>
@@ -591,11 +606,11 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
 
       <div className="orders-meta">
         <p>
-          <strong className="orders-count">{`${filteredCount.toLocaleString('en-US')} ${filteredCount === 1 ? 'order' : 'orders'}`}</strong>
-          {currentStatus && currentStatus !== 'ALL' ? <a className="orders-chip" href={buildUrl({ status: 'ALL', page: '1' })}>Status: {STATUS_LABEL[currentStatus] || currentStatus} ×</a> : null}
-          {currentDate && currentDate !== 'all' ? <a className="orders-chip" href={buildUrl({ date: 'all', page: '1' })}>Date: {DATE_FILTERS.find((item) => item.key === currentDate)?.label || currentDate} ×</a> : null}
-          {currentAccount && currentAccount !== 'all' ? <a className="orders-chip" href={buildUrl({ account: 'all', page: '1' })}>Account: {accounts.find((account) => account.id === currentAccount)?.name || 'Account'} ×</a> : null}
-          {currentSearch ? <a className="orders-chip" href={buildUrl({ q: '', page: '1' })}>Search: {currentSearch} ×</a> : null}
+          <strong className="orders-count">{`${scroll.total.toLocaleString('en-US')} ${scroll.total === 1 ? 'order' : 'orders'}`}</strong>
+          {statusFilter && statusFilter !== 'ALL' ? <button type="button" className="orders-chip" onClick={() => applyFilters({ status: 'ALL' })}>Status: {STATUS_LABEL[statusFilter] || statusFilter} ×</button> : null}
+          {dateFilter && dateFilter !== 'all' ? <button type="button" className="orders-chip" onClick={() => applyFilters({ date: 'all' })}>Date: {DATE_FILTERS.find((item) => item.key === dateFilter)?.label || dateFilter} ×</button> : null}
+          {accountFilter && accountFilter !== 'all' ? <button type="button" className="orders-chip" onClick={() => applyFilters({ account: 'all' })}>Account: {accounts.find((account) => account.id === accountFilter)?.name || 'Account'} ×</button> : null}
+          {searchFilter ? <button type="button" className="orders-chip" onClick={() => { setQuery(''); applyFilters({ q: '' }); }}>Search: {searchFilter} ×</button> : null}
           {pdfError ? <span className="orders-note is-bad" role="alert">{pdfError}</span> : null}
           {statusNote ? <span className="orders-note is-ok" role="status">{statusNote}</span> : null}
         </p>
@@ -621,11 +636,11 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
             <Icon><path d="M20 12a8 8 0 1 1-2.2-5.5" /><path d="M20 4v5h-5" /></Icon>
             Refresh
           </button>
-          {(currentStatus && currentStatus !== 'ALL') || (currentAccount && currentAccount !== 'all') || (currentDate && currentDate !== 'all') || currentSearch ? (
-            <a className="dash-outline orders-clear-filters" href={buildUrl({ status: 'ALL', account: 'all', date: 'all', q: '', page: '1' })}>
+          {(statusFilter && statusFilter !== 'ALL') || (accountFilter && accountFilter !== 'all') || (dateFilter && dateFilter !== 'all') || searchFilter ? (
+            <button type="button" className="dash-outline orders-clear-filters" onClick={clearFilters}>
               <Icon><path d="M4 5h16l-6 7v5l-4 2v-7L4 5z" /></Icon>
               Clear Filters
-            </a>
+            </button>
           ) : null}
         </div>
       </div>
@@ -654,8 +669,8 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
                 <td colSpan="10" className="orders-empty">
                   <strong>No orders match these filters.</strong>
                   <p>Try another status, account, or date.</p>
-                  {(currentStatus && currentStatus !== 'ALL') || (currentAccount && currentAccount !== 'all') || (currentDate && currentDate !== 'all') || currentSearch ? (
-                    <a className="dash-outline" href="/orders">Clear filters</a>
+                  {(statusFilter && statusFilter !== 'ALL') || (accountFilter && accountFilter !== 'all') || (dateFilter && dateFilter !== 'all') || searchFilter ? (
+                    <button type="button" className="dash-outline" onClick={clearFilters}>Clear filters</button>
                   ) : null}
                 </td>
               </tr>

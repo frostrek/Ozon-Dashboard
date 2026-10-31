@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { listScrapedProducts } from '../../../lib/catalog/scrapedProducts';
-import ScrapedFilters from './ScrapedFilters';
-import ScrapedList from './ScrapedList';
+import ScrapedBoard from './ScrapedBoard';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,11 +27,10 @@ export default async function ScrapedProductsPage({ searchParams }) {
         <Link href="/catalog/scraped" className="is-on">Scraped products</Link>
       </nav>
 
-      <ScrapedFilters query={filters.q} brand={filters.brand} status={filters.status} date={filters.date} brands={data.brands} />
-
-      <ScrapedList
+      <ScrapedBoard
         initialProducts={data.products}
         total={data.total}
+        brands={data.brands}
         query={filters.q}
         brand={filters.brand}
         status={filters.status}

@@ -1,30 +1,22 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import TypeSelect from '../../components/TypeSelect';
 
-function queryFor(filters) {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(filters)) {
-    if (!value || value === 'all') continue;
-    params.set(key, value);
-  }
-  const query = params.toString();
-  return query ? `/catalog/scraped?${query}` : '/catalog/scraped';
-}
-
-export default function ScrapedFilters({ query, brand, status, date, brands }) {
-  const router = useRouter();
+export default function ScrapedFilters({ query, brand, status, date, brands, onChange }) {
   const [text, setText] = useState(query || '');
   const filters = { q: text.trim(), brand, status, date };
 
+  useEffect(() => {
+    setText(query || '');
+  }, [query]);
+
   function go(patch) {
-    router.push(queryFor({ ...filters, ...patch }));
+    onChange?.({ ...filters, ...patch });
   }
 
   return (
-    <form className="catalog-filters scraped-filters" onSubmit={(event) => { event.preventDefault(); go({}); }}>
+    <form className="catalog-filters scraped-filters" onSubmit={(event) => { event.preventDefault(); go({ q: text.trim() }); }}>
       <input value={text} onChange={(event) => setText(event.target.value)} placeholder="Search name, ASIN, or brand" aria-label="Search scraped products" />
       <TypeSelect
         label="Brand"
@@ -55,7 +47,7 @@ export default function ScrapedFilters({ query, brand, status, date, brands }) {
         onChange={(next) => go({ date: next })}
       />
       <button type="submit" className="dash-primary">Apply</button>
-      <button type="button" className="dash-outline" onClick={() => { setText(''); router.push('/catalog/scraped'); }}>Clear</button>
+      <button type="button" className="dash-outline" onClick={() => { setText(''); onChange?.({ q: '', brand: 'all', status: 'all', date: 'all' }); }}>Clear</button>
     </form>
   );
 }

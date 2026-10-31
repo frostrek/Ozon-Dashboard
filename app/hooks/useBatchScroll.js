@@ -119,14 +119,17 @@ export function useBatchScroll({
       }
       return;
     }
-    setFetched(initialItems);
-    setVisibleCount(Math.min(UI_BATCH, initialItems.length));
-    setTotal(initialTotal);
     setCurrentPage(1);
     setNextPage(2);
     setError('');
     if (loadPage) {
+      setFetched([]);
+      setVisibleCount(0);
       fetchBatch(1, true);
+    } else {
+      setFetched(initialItems);
+      setVisibleCount(Math.min(UI_BATCH, initialItems.length));
+      setTotal(initialTotal);
     }
   }, [resetKey]);
 

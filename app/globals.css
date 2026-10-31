@@ -5055,6 +5055,8 @@ a.pipe-page-btn {
   text-decoration: none;
   white-space: nowrap;
   box-shadow: 0 1px 1px rgba(15, 23, 42, 0.03);
+  font: inherit;
+  cursor: pointer;
 }
 
 .orders-tab svg {
@@ -5122,20 +5124,26 @@ a.pipe-page-btn {
   border-radius: 12px;
 }
 
-.orders-dates a {
+.orders-dates a,
+.orders-dates button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   min-height: 34px;
   padding: 0 10px;
+  border: 0;
+  background: transparent;
   border-radius: 9px;
   color: #475569;
   text-decoration: none;
   font-size: 13px;
   font-weight: 650;
+  font-family: inherit;
+  cursor: pointer;
 }
 
 .orders-dates a svg,
+.orders-dates button svg,
 .orders-account svg,
 .orders-search-field svg,
 .orders-ship svg,
@@ -5149,7 +5157,8 @@ a.pipe-page-btn {
   stroke-linejoin: round;
 }
 
-.orders-dates a.is-on {
+.orders-dates a.is-on,
+.orders-dates button.is-on {
   background: #EFF6FF;
   color: #2563EB;
 }
@@ -5182,6 +5191,7 @@ a.pipe-page-btn {
 .orders-pager select:focus,
 .orders-bulk select:focus,
 .orders-dates a:focus-visible,
+.orders-dates button:focus-visible,
 .orders-tab:focus-visible,
 .orders-icon-btn:focus-visible {
   outline: none;
@@ -5228,12 +5238,15 @@ a.pipe-page-btn {
   align-items: center;
   min-height: 28px;
   padding: 0 10px;
+  border: 0;
   border-radius: 999px;
   background: #EFF6FF;
   color: #1D4ED8;
   text-decoration: none;
   font-size: 12px;
   font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
 }
 .orders-chip:hover { background: #DBEAFE; }
 .orders-selected {
