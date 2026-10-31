@@ -4,9 +4,9 @@ import { PrismaClient } from '@prisma/client';
 import { ozonPost, ozonPauseReason } from './ozon-http.js';
 
 const prisma = new PrismaClient();
-const PAGE = 1000;
+const PAGE = 100;
 const STATUS_FILE = path.join(process.cwd(), 'runs', 'product-sync-status.json');
-let pageSize = 1000;
+let pageSize = 100;
 
 function writeStatus(status) {
   fs.mkdirSync(path.dirname(STATUS_FILE), { recursive: true });

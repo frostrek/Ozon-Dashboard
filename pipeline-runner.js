@@ -1,7 +1,5 @@
 import { PrismaClient } from '@prisma/client';
 import { appendFile, mkdir, readFile } from "node:fs/promises";
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import path from "path";
 import { createLogger } from "./logger.js";
 import { fetchOrders } from "./01-fetch-orders.js";
@@ -224,7 +222,6 @@ async function run() {
     const logger    = createLogger(runDir);
     globalThis.ozonNote = (message) => note('fetch', message);
     const startTime = performance.now();
-    const execAsync = promisify(exec);
 
     try {
         await note('fetch', `Fetching orders that are ready to pack for ${account.name}...`);
@@ -285,16 +282,8 @@ async function run() {
             await note('sync', `Status sync finished. ${seen} of ${openOrders.length} open orders were in this date range. ${changed} changed.${outsideNote}`);
         }
         console.log(`[pipeline-runner] STAGE 0 complete: status sync done`);
-        await note('products', 'Syncing products...');
-
-        // ── STAGE 0.5 : Product Sync ──────────────────────────────
-        console.log(`[pipeline-runner] STAGE 0.5: Syncing products...`);
-        try {
-            await execAsync(`bun "${path.join(process.cwd(), 'product-sync.js')}" "${account.id}"`);
-            console.log(`[pipeline-runner] STAGE 0.5 complete: Product sync done`);
-        } catch (err) {
-            console.error(`[pipeline-runner] Warning: Product sync failed, continuing...`, err);
-        }
+        await note('products', 'Not scanning the full product catalog. This run only processes the orders above. Use Products → Sync from Ozon to refresh the catalog.');
+        console.log(`[pipeline-runner] STAGE 0.5 skipped: full product catalog sync is not part of packing orders`);
 
         // ── STAGE 2 : Upsert fetched orders into DB ────────────────────────
         await note('save', 'Saving orders...');

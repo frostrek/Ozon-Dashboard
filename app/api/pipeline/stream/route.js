@@ -26,6 +26,7 @@ export async function GET(req) {
       let offset = 0;
       let announcedWait = false;
       let sentExcerpt = false;
+      let attachedFile = false;
       const startedAt = Date.now();
 
       try {
@@ -42,6 +43,10 @@ export async function GET(req) {
             try {
               const info = await stat(logPath);
               sawFile = true;
+              if (!attachedFile) {
+                attachedFile = true;
+                if (sentExcerpt) offset = info.size;
+              }
               if (info.size > offset) {
                 const handle = await open(logPath, 'r');
                 const length = info.size - offset;
@@ -58,7 +63,7 @@ export async function GET(req) {
                 send('log', { line: `Could not read log: ${err.message}` });
               }
             }
-          } else if (!announcedWait) {
+          } else if (!announcedWait && !run.log_excerpt) {
             announcedWait = true;
             send('log', { line: 'Waiting for the pipeline to create its run folder...' });
           }
