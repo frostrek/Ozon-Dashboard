@@ -12,37 +12,51 @@ export default async function OrdersPage({ searchParams }) {
   const dateFilter = searchParams?.date || 'all';
   const searchFilter = searchParams?.q || '';
 
-  const [data, statusCounts, accounts] = await Promise.all([
-    listOrdersPage({
-      page: 1,
-      pageSize: ORDER_PAGE_SIZE,
-      status: statusFilter,
-      account: accountFilter,
-      date: dateFilter,
-      q: searchFilter,
-    }),
-    orderStatusCounts(accountFilter),
-    prisma.account.findMany({
-      select: { id: true, name: true },
-      orderBy: { name: 'asc' },
-    }),
-  ]);
+  try {
+    const [data, statusCounts, accounts] = await Promise.all([
+      listOrdersPage({
+        page: 1,
+        pageSize: ORDER_PAGE_SIZE,
+        status: statusFilter,
+        account: accountFilter,
+        date: dateFilter,
+        q: searchFilter,
+      }),
+      orderStatusCounts(accountFilter),
+      prisma.account.findMany({
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      }),
+    ]);
 
-  const safeAccounts = toPlain(accounts) || [];
-  if (!safeAccounts.length) {
-    return <FriendlyError kind="no-account" />;
+    const safeAccounts = (toPlain(accounts) || []).map((row) => ({
+      id: String(row.id),
+      name: String(row.name || 'Untitled account'),
+    }));
+    if (!safeAccounts.length) {
+      return <FriendlyError kind="no-account" />;
+    }
+
+    return (
+      <OrdersClient
+        orders={toPlain(data.orders) || []}
+        statusCounts={toPlain(statusCounts) || {}}
+        accounts={safeAccounts}
+        currentStatus={statusFilter}
+        currentAccount={accountFilter}
+        currentDate={dateFilter}
+        currentSearch={searchFilter}
+        filteredCount={data.filteredCount}
+      />
+    );
+  } catch (error) {
+    console.error('[orders-page]', error);
+    return (
+      <FriendlyError
+        kind="page"
+        message="Orders could not be loaded from the database."
+        digest={error?.digest ? String(error.digest) : ''}
+      />
+    );
   }
-
-  return (
-    <OrdersClient
-      orders={toPlain(data.orders) || []}
-      statusCounts={toPlain(statusCounts) || {}}
-      accounts={safeAccounts}
-      currentStatus={statusFilter}
-      currentAccount={accountFilter}
-      currentDate={dateFilter}
-      currentSearch={searchFilter}
-      filteredCount={data.filteredCount}
-    />
-  );
 }

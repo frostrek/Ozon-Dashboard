@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '../../../../lib/prisma';
 import { listRunFiles, serializeRun } from '../../../../lib/pipeline/files';
 import { recoverStaleRuns } from '../../../../lib/pipeline/recoverRuns';
+import { accountNamesById } from '../../../../lib/accountNames';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,15 +38,15 @@ export async function GET(req) {
   if (page > pageCount) page = pageCount;
 
   const runs = await prisma.pipelineRun.findMany({
-    include: { account: { select: { id: true, name: true } } },
     orderBy: { start_time: 'desc' },
     skip: (page - 1) * pageSize,
     take: pageSize,
   });
+  const names = await accountNamesById(runs.map((run) => run.account_id));
 
   const payload = [];
   for (const run of runs) {
-    payload.push(serializeRun(run, await listRunFiles(run.run_dir)));
+    payload.push(serializeRun({ ...run, account: { name: names[run.account_id] || null } }, await listRunFiles(run.run_dir)));
   }
 
   const accountWhere = accountId ? { account_id: accountId } : null;

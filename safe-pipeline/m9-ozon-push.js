@@ -13,11 +13,7 @@ import { fetchCategoryAttributes } from "./m10-ozon-attrs.js";
 import { mapAmazonToOzon, extractComposition, extractShelfLife } from "./m10b-attr-mapper.js";
 import { buildBrandCache } from "./m29-build-brand-cache.js";
 import { validateAndCorrectBrand, preUploadGate, isValidBrandValue, validateCharacteristics, buildBrandAudit, saveBrandAudit } from "./m-brand-validator.js";
-import { generateRussianImagePackage } from "./m-image-gen-ru.js";
-import { validateImageBrands } from "./m-image-ocr-validator.js";
 import { validateTitleQuality, validateAllTextLanguage, calculateCharacteristicsScore, validateImageQuality } from "./m-quality-validator.js";
-import { processProductImages } from "./m-image-pipeline.js";
-import { uploadRenderedImage } from "./m-image-renderer.js";
 import { getCountryId as getLocalCountryId, upsertCountry as upsertLocalCountry, isAlreadyUploaded, markAsUploaded } from "./m-local-db.js";
 
 
@@ -650,46 +646,8 @@ export async function pushProductToOzon(p, inrUsdRate, options) {
     return { success: false, error: `PRE_UPLOAD_GATE: ${gate.blockers.join(' | ')}` };
   }
 
-  // ── Russian image package (layout metadata for logging) ──────────────────
-  const ruImagePkg = await generateRussianImagePackage(p, proxyBrand, ai.title_ru, typeLabel);
-  console.log(`  🖼️  RU image package ready: bg=${ruImagePkg.background}`);
-
-  // ── Generate ALL images via sharp-based pipeline (no browser needed) ──────────
-  let ozonImageList = [...rehostedImages]; // default: original Amazon images
-  try {
-    const imgResult = await processProductImages(
-      p,
-      brandForTextChecks, // use the proper text brand, not a blank space
-      ai.title_ru,
-      ruImagePkg.benefits,
-      typeLabel
-    );
-
-    const uploadImage = async (buf, slot) => {
-      if (!buf) return null;
-      return await uploadRenderedImage(SUPABASE_URL, SUPABASE_KEY, p.asin, slot, buf);
-    };
-
-    // Upload main image → slot 0
-    const mainUrl = await uploadImage(imgResult.mainBuf, 0);
-    if (mainUrl) {
-      ozonImageList = [mainUrl];
-      console.log(`  ✅ Main RU image: ${mainUrl.slice(-50)}`);
-    }
-
-    // Upload additional images → slots 1+
-    for (let i = 0; i < imgResult.additionalBufs.length; i++) {
-      const url = await uploadImage(imgResult.additionalBufs[i], i + 1);
-      ozonImageList.push(url || rehostedImages[i + 1] || (Array.isArray(p.image_urls) ? p.image_urls[i + 1] : null) || "");
-    }
-    // Trim nulls/empty
-    ozonImageList = ozonImageList.filter(Boolean).slice(0, 10);
-
-    if (ozonImageList.length === 0) ozonImageList = [...rehostedImages];
-
-  } catch (imgErr) {
-    console.warn(`  ⚠️  Image pipeline error: ${imgErr.message} — using Amazon URLs as fallback`);
-  }
+  const ozonImageList = [...rehostedImages].filter(Boolean).slice(0, 10);
+  console.log(`  🖼️  Sending ${ozonImageList.length} product photo(s) as-is. Studio 1500×2000 rebuild is off.`);
 
   // 4. Normalized Weights
   const netWeight = parseInt(p.weight_grams || 100, 10);
@@ -962,53 +920,9 @@ export async function pushProductToOzon(p, inrUsdRate, options) {
   }
   const imageQuality = validateImageQuality(rehostedImages);
 
-  // ─── IMAGE OCR BRAND VALIDATION ─────────────────────────────────────────────
-  // Run OCR on all re-hosted images.
-  // COMPLIANCE RULE: OCR failures are WARNINGS only — they NEVER block upload.
-  // Banned ingredient text in images generates a COMPLIANCE_RISK_IMAGE warning
-  // and is saved to the audit log, then upload continues.
-  let ocrPass = true; // Always stays true — OCR no longer gates upload
-  let ocrAuditDetails = [];
+  const ocrPass = true;
+  const ocrAuditDetails = [];
   const ocrComplianceWarnings = [];
-
-  // Banned ingredients to flag if found in OCR text
-  const OCR_BANNED_INGREDIENTS = [
-    "ashwagandha", "ashvagandha", "withania", "somnifera",
-    "gokshura", "gokhru", "tribulus",
-    "ашвагандха", "ашваганда", "гокшура", "трибулус"
-  ];
-
-  if (rehostedImages.length > 0) {
-    const ocrResult = await validateImageBrands(rehostedImages, brandForTextChecks);
-    // OCR brand result is recorded but NOT allowed to block upload
-    ocrAuditDetails = ocrResult.results;
-
-    if (!ocrResult.pass) {
-      const failedIdxs = ocrResult.results.filter(r => !r.pass).map(r => r.index);
-      console.log(`\x1b[33m  ⚠️  OCR: Foreign brand detected in image(s) ${failedIdxs.join(', ')} — WARNING only, continuing upload.\x1b[0m`);
-    }
-
-    // Scan OCR text for banned ingredients → generate compliance warning and REMOVE image
-    const safeImages = [];
-    for (const imgData of ocrResult.results) {
-      if (!imgData.ocrText) {
-         safeImages.push(rehostedImages[imgData.index]);
-         continue;
-      }
-      const ocrLower = imgData.ocrText.toLowerCase();
-      const foundIngredients = OCR_BANNED_INGREDIENTS.filter(term => ocrLower.includes(term));
-      if (foundIngredients.length > 0) {
-        const warning = `COMPLIANCE_VIOLATION: Image[${imgData.index}] contains banned ingredient text: ${foundIngredients.join(", ")}. REMOVING image from pipeline.`;
-        ocrComplianceWarnings.push(warning);
-        console.log(`\x1b[31m  ❌  ${warning}\x1b[0m`);
-      } else {
-        safeImages.push(rehostedImages[imgData.index]);
-      }
-    }
-    // Only upload compliant images, dropping dangerous ones
-    rehostedImages.length = 0; // Clear original array in place
-    safeImages.forEach(img => rehostedImages.push(img));
-  }
 
   // ─── BRAND AUDIT REPORT ──────────────────────────────────────────────────────
   // Build and persist the audit JSON before the final gate.

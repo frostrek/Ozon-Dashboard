@@ -32,6 +32,21 @@ async function fetchImageBuf(url) {
   return Buffer.from(await res.arrayBuffer());
 }
 
+async function mapPool(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      out[index] = await fn(items[index], index);
+    }
+  }
+  const workers = Math.min(Math.max(1, limit), items.length || 1);
+  await Promise.all(Array.from({ length: workers }, () => worker()));
+  return out;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // STANDARD IMAGE GENERATOR (3:4 Ratio, Clean Studio Background)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -109,29 +124,26 @@ export async function processProductImages(product, brand, titleRu, benefitsRu =
   const imageUrls = Array.isArray(product.image_urls) ? product.image_urls : [];
   const qualityReport = [];
 
-  console.log(`  🎨 [ImagePipeline] Processing ${imageUrls.length} standard images for ${asin}`);
+  const urls = imageUrls.slice(0, 8);
+  console.log(`  🎨 [ImagePipeline] Processing ${urls.length} standard images for ${asin} (3 at a time)`);
 
   let mainBuf = null;
   const additionalBufs = [];
+  const buffers = await mapPool(urls, 3, (url) => generateStandardImage(url));
 
-  // Try fetching the primary image
-  for (let i = 0; i < imageUrls.length; i++) {
-    const buf = await generateStandardImage(imageUrls[i]);
-    if (buf) {
-      const qv = await validateImageQualityBuffer(buf);
-      
-      if (!mainBuf) {
-        mainBuf = buf;
-        qualityReport.push({ slot: "main", ...qv });
-        console.log(`  ✅ Main image (3:4 Studio): ${qv.width}×${qv.height}px`);
-      } else {
-        additionalBufs.push(buf);
-        qualityReport.push({ slot: `additional_${additionalBufs.length}`, ...qv });
-        console.log(`  ✅ Additional image (3:4 Studio) [${additionalBufs.length}]: ${qv.width}×${qv.height}px`);
-      }
+  for (let i = 0; i < buffers.length; i++) {
+    const buf = buffers[i];
+    if (!buf) continue;
+    const qv = await validateImageQualityBuffer(buf);
 
-      // Cap at 8 images total (1 main + 7 additional), per Ozon guidelines
-      if (additionalBufs.length >= 7) break;
+    if (!mainBuf) {
+      mainBuf = buf;
+      qualityReport.push({ slot: "main", ...qv });
+      console.log(`  ✅ Main image (3:4 Studio): ${qv.width}×${qv.height}px`);
+    } else {
+      additionalBufs.push(buf);
+      qualityReport.push({ slot: `additional_${additionalBufs.length}`, ...qv });
+      console.log(`  ✅ Additional image (3:4 Studio) [${additionalBufs.length}]: ${qv.width}×${qv.height}px`);
     }
   }
 

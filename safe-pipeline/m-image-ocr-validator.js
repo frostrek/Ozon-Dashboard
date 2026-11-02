@@ -160,9 +160,9 @@ async function runOcr(imageUrl) {
  * }>}
  */
 export async function validateImageBrands(imageUrls, ownBrand) {
-  const ocrMethod = GOOGLE_VISION_KEY
-    ? "google_vision"
-    : (await isTestable("tesseract.js") ? "tesseract" : "url_heuristic");
+  // Tesseract on every image can take minutes and never blocks the upload.
+  // Only run real OCR when Google Vision is configured; otherwise use the URL heuristic.
+  const ocrMethod = GOOGLE_VISION_KEY ? "google_vision" : "url_heuristic";
 
   const results = [];
 
@@ -171,7 +171,7 @@ export async function validateImageBrands(imageUrls, ownBrand) {
     if (!url) continue;
 
     console.log(`  🔍 OCR check image ${i + 1}/${imageUrls.length}...`);
-    const ocrText = await runOcr(url);
+    const ocrText = GOOGLE_VISION_KEY ? await runOcr(url) : ocrViaUrlHeuristic(url);
     const { found, culprits, ownPresent } = scanOcrTextForBrands(ocrText, ownBrand);
 
     const isMissingBrand = !ownPresent && ocrText.length > 5; // only complain if there is text but brand is missing

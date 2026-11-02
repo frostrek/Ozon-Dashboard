@@ -679,6 +679,7 @@ async function pushAll(modules, products, { fromCheckpoint = false, retry = fals
     if (rateLimited) break;
     const product = products[index];
     writeStatus({ currentStep: `push ${index + 1}/${products.length}` });
+    log("info", `Pushing product ${index + 1} of ${products.length} (${product.asin}).`);
     try {
       const result = await modules.push.pushProductToOzon(product, rate, options);
       if (rateLimited) break;

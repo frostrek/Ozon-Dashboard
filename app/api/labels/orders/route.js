@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '../../../../lib/prisma';
 import { dbStatusFor, DB_STATUS_LABEL } from '../../../../lib/orders/statusMap';
+import { accountNamesById } from '../../../../lib/accountNames';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,10 +78,10 @@ export async function GET(request) {
     prisma.order.findMany({
       where,
       take: 400,
-      include: { account: { select: { id: true, name: true } } },
       orderBy: { updated_at: 'desc' },
     }),
   ]);
+  const names = await accountNamesById(dbOrders.map((order) => order.account_id));
 
   const products = [];
   const warehouses = new Set();
@@ -104,7 +105,7 @@ export async function GET(request) {
         orderId: order.id,
         postingNumber: order.posting_number,
         accountId: order.account_id,
-        accountName: order.account?.name || '',
+        accountName: names[order.account_id] || '',
         status: statusLabel,
         statusLabel: DB_STATUS_LABEL[statusLabel] || statusLabel,
         name: name || 'No product name',
