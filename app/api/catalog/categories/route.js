@@ -53,11 +53,12 @@ function mergeTrees(russian, english) {
 }
 
 function categoryTreeFromDisk() {
-  const root = safeRoot();
-  const english = readTree(path.join(root, 'ozon-tree-en-cache.json'));
-  const russian = readTree(path.join(root, 'ozon-tree-ru-cache.json'));
-  if (!english.length && !russian.length) return [];
-  return mergeTrees(russian, english);
+  for (const root of safeRoots()) {
+    const english = readTree(path.join(root, 'ozon-tree-en-cache.json'));
+    const russian = readTree(path.join(root, 'ozon-tree-ru-cache.json'));
+    if (english.length || russian.length) return mergeTrees(russian, english);
+  }
+  return [];
 }
 
 async function fetchOzonTree(account, language) {
@@ -110,9 +111,13 @@ async function ensureTree() {
   return loadingTree;
 }
 
-function safeRoot() {
-  return process.env.CATALOG_SAFE_ROOT
-    || path.resolve(DASHBOARD_ROOT, 'safe-pipeline');
+function safeRoots() {
+  const roots = [
+    process.env.CATALOG_SAFE_ROOT,
+    path.resolve(DASHBOARD_ROOT, 'safe-pipeline'),
+    path.resolve(DASHBOARD_ROOT, 'pipeline-master Dashboard', 'safe-pipeline'),
+  ].filter(Boolean);
+  return [...new Set(roots)];
 }
 
 function readTree(file) {

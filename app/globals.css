@@ -4778,7 +4778,9 @@ form.catalog-filters input {
 .catalog-menu-pop.is-float,
 .type-select-pop.is-float {
   position: fixed;
-  z-index: 5000;
+  z-index: 8000;
+  right: auto;
+  bottom: auto;
 }
 
 .catalog-delete {

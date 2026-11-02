@@ -53,6 +53,10 @@ export async function PATCH(req, { params }) {
     if (!product) return NextResponse.json({ error: 'Product not found.' }, { status: 404 });
 
     const previousAttrs = readAttrs(product.attributes_json);
+    const images = String(fields.images || '')
+      .split(/[\s,]+/)
+      .map((url) => url.trim())
+      .filter((url) => /^https:\/\//i.test(url));
     const nextAttrs = {
       ...previousAttrs,
       description: String(fields.description || ''),
@@ -60,18 +64,32 @@ export async function PATCH(req, { params }) {
       size: String(fields.size || ''),
       keywords: String(fields.keywords || ''),
       hashtags: String(fields.hashtags || ''),
+      vat: fields.vat === '' || fields.vat == null ? previousAttrs.vat : String(fields.vat),
+      barcode: String(fields.barcode || previousAttrs.barcode || ''),
+      description_category_id: fields.description_category_id || previousAttrs.description_category_id || '',
+      type_id: fields.type_id || previousAttrs.type_id || '',
+      weight: fields.weight === '' || fields.weight == null ? previousAttrs.weight : numberOr(fields.weight, previousAttrs.weight),
+      depth: fields.depth === '' || fields.depth == null ? previousAttrs.depth : numberOr(fields.depth, previousAttrs.depth),
+      width: fields.width === '' || fields.width == null ? previousAttrs.width : numberOr(fields.width, previousAttrs.width),
+      height: fields.height === '' || fields.height == null ? previousAttrs.height : numberOr(fields.height, previousAttrs.height),
+      weight_unit: previousAttrs.weight_unit || 'g',
+      dimension_unit: previousAttrs.dimension_unit || 'mm',
+      warehouse_id: fields.warehouse_id || previousAttrs.warehouse_id || '',
+      warehouse_name: fields.warehouse_name || previousAttrs.warehouse_name || '',
     };
-    if (fields.weight !== '' && fields.weight != null) nextAttrs.weight = numberOr(fields.weight, previousAttrs.weight);
 
     await prisma.product.update({
       where: { id: productId },
       data: {
         name: String(fields.name || product.name),
+        sku: String(fields.sku || product.sku),
         brand: String(fields.brand || '') || null,
         price: numberOr(fields.price, product.price),
         old_price: numberOr(fields.old_price, product.old_price),
+        currency: String(fields.currency || product.currency || 'RUB'),
         stock: Math.round(numberOr(fields.stock, product.stock)),
         volume_weight: numberOr(fields.weight, product.volume_weight),
+        images_json: JSON.stringify(images.length ? images : JSON.parse(product.images_json || '[]')),
         attributes_json: JSON.stringify(nextAttrs),
       },
     });
@@ -86,11 +104,11 @@ export async function PATCH(req, { params }) {
     });
     const report = await importStoredProducts([fresh]);
     const row = report.results[0];
-    if (!row || row.status === 'failed') {
+    if (!row || row.status === 'failed' || /Price was not updated/i.test(row.warning || '')) {
       return NextResponse.json({
         saved: true,
         pushed: false,
-        error: row?.error || 'Ozon did not accept this listing.',
+        error: row?.error || row?.warning || 'Ozon did not accept this listing.',
         report,
       }, { status: 400 });
     }
@@ -98,6 +116,7 @@ export async function PATCH(req, { params }) {
     return NextResponse.json({
       success: true,
       pushed: true,
+      priceUpdated: true,
       taskId: row.taskId || null,
       action: row.action || 'update',
       status: row.status,

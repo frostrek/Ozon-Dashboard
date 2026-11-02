@@ -463,24 +463,32 @@ export default function NewRunForm({ accounts, activeRun = null }) {
               </label>
               <label className="field">
                 <span className="field-label">Select a category</span>
-                <TypeSelect
-                  label="Category"
+                <select
+                  aria-label="Category"
                   value={picked ? `${picked.catId}:${picked.typeId}` : ''}
-                  options={[
-                    { id: '', label: searching ? 'Searching…' : (searchNote || (results.length ? 'Choose from the list' : (query.trim().length < 2 ? 'Type at least 2 letters' : 'No categories yet'))) },
-                    ...results.map((item) => ({ id: `${item.catId}:${item.typeId}`, label: item.label })),
-                    ...(picked && !results.some((item) => item.catId === picked.catId && item.typeId === picked.typeId)
-                      ? [{ id: `${picked.catId}:${picked.typeId}`, label: picked.label }]
-                      : []),
-                  ]}
-                  onChange={(next) => {
+                  onChange={(event) => {
+                    const next = event.target.value;
                     const item = results.find((row) => `${row.catId}:${row.typeId}` === next)
                       || (picked && `${picked.catId}:${picked.typeId}` === next ? picked : null);
                     if (!item) return;
                     setPicked(item);
                     setCategory(item);
                   }}
-                />
+                >
+                  <option value="">
+                    {searching
+                      ? 'Searching…'
+                      : (searchNote || (results.length ? 'Choose from the list' : (query.trim().length < 2 ? 'Type at least 2 letters' : 'No categories yet')))}
+                  </option>
+                  {results.map((item) => (
+                    <option key={`${item.catId}:${item.typeId}`} value={`${item.catId}:${item.typeId}`}>
+                      {item.label}
+                    </option>
+                  ))}
+                  {picked && !results.some((item) => item.catId === picked.catId && item.typeId === picked.typeId) ? (
+                    <option value={`${picked.catId}:${picked.typeId}`}>{picked.label}</option>
+                  ) : null}
+                </select>
               </label>
               {searching ? <p className="field-help">Searching the saved Ozon category list…</p> : null}
               {searchNote ? <p className="field-help">{searchNote}</p> : null}

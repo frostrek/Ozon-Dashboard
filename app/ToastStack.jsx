@@ -27,7 +27,7 @@ export default function ToastStack({ toasts, onDismiss }) {
   return (
     <div className="toast-stack">
       {toasts.map((toast) => (
-        <div key={toast.id} className={`app-toast${toast.tone === 'error' ? ' app-toast-error' : ''}`} role="status">
+        <div key={toast.id} className={`app-toast${toast.tone === 'error' ? ' app-toast-error' : toast.tone === 'info' ? ' app-toast-info' : ''}`} role="status">
           <span className="app-toast-mark" aria-hidden="true">
             <svg viewBox="0 0 24 24"><path d={toast.tone === 'error' ? 'M6 6l12 12M18 6 6 18' : 'M5 12.5 9.5 17 19 7'} /></svg>
           </span>
