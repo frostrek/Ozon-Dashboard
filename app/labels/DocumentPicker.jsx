@@ -7,7 +7,6 @@ import ListPager from '../components/ListPager';
 
 const EMPTY_FILTERS = {
   account: 'all',
-  status: 'AWAITING_DELIVERY',
   from: '',
   to: '',
   warehouse: '',
@@ -169,7 +168,7 @@ export default function DocumentPicker({ onMessage }) {
       <div className="label-panel-head">
         <div>
           <h2>Download from Ozon</h2>
-          <p>Only orders waiting for pickup are listed. Those are the orders Ozon can print a shipping label for.</p>
+          <p>Orders that are ready to pack or waiting for pickup are listed. Downloading shipping labels packs ready-to-pack orders on Ozon first, then prints the labels.</p>
         </div>
       </div>
 
@@ -279,7 +278,7 @@ export default function DocumentPicker({ onMessage }) {
               </tr>
             ))}
             {state === 'ready' && products.length === 0 ? (
-              <tr><td colSpan={8}>No orders are waiting for pickup.</td></tr>
+              <tr><td colSpan={8}>No orders are ready to pack or waiting for pickup.</td></tr>
             ) : null}
           </tbody>
         </table>

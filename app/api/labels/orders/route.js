@@ -64,6 +64,7 @@ export async function GET(request) {
   const where = {};
   if (accountId !== 'all') where.account_id = accountId;
   if (STATUSES.includes(status)) where.status = status;
+  else where.status = { in: ['AWAITING_PACKAGING', 'AWAITING_DELIVERY'] };
   const created = dateWhere(date, from, to);
   if (created) where.created_at = created;
   if (q) {
@@ -90,8 +91,10 @@ export async function GET(request) {
     try { parsed = JSON.parse(order.raw_json || '{}'); } catch { parsed = {}; }
     const ozonStatus = String(parsed.status || '').trim();
     const statusLabel = dbStatusFor(parsed.status, order.status);
-    const printable = ozonStatus ? ozonStatus === 'awaiting_deliver' : statusLabel === 'AWAITING_DELIVERY';
-    if (!printable) return;
+    const labelReady = ozonStatus
+      ? ozonStatus === 'awaiting_packaging' || ozonStatus === 'awaiting_approve' || ozonStatus === 'awaiting_deliver'
+      : statusLabel === 'AWAITING_PACKAGING' || statusLabel === 'AWAITING_DELIVERY';
+    if (!labelReady) return;
     const place = String(parsed.delivery_method?.warehouse || '').trim();
     if (place) warehouses.add(place);
     const items = Array.isArray(parsed.products) && parsed.products.length ? parsed.products : [null];
