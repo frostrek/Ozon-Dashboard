@@ -36,11 +36,11 @@ function shipBy(value) {
   return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-async function downloadDocument(kind, orderIds, lines) {
+async function downloadDocument(kind, orderIds, lines, postingNumbers = []) {
   const response = await fetch('/api/labels/documents', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ kind, orderIds, lines }),
+    body: JSON.stringify({ kind, orderIds, lines, postingNumbers }),
   });
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
@@ -48,12 +48,17 @@ async function downloadDocument(kind, orderIds, lines) {
   }
   const blob = await response.blob();
   const note = response.headers.get('X-Document-Note') || '';
+  const printed = Number(response.headers.get('X-Printed-Count') || 0);
+  const requested = Number(response.headers.get('X-Requested-Count') || 0);
   const filename = kind === 'shipping' ? 'ozon-shipping-labels.pdf' : 'ozon-product-list.pdf';
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
   link.download = filename;
   link.click();
   URL.revokeObjectURL(link.href);
+  if (kind === 'shipping' && requested && printed < requested) {
+    return note || `Printed ${printed} of ${requested} shipping labels.`;
+  }
   return note;
 }
 
@@ -151,6 +156,7 @@ export default function DocumentPicker({ onMessage }) {
           postingNumber: row.postingNumber,
           warehouse: row.warehouse,
         })),
+        [...new Set(chosen.map((row) => row.postingNumber).filter(Boolean))],
       );
       onMessage?.(message || (kind === 'shipping' ? 'Shipping labels downloaded from Ozon.' : 'Product list downloaded.'));
     } catch (err) {

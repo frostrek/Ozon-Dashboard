@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '../../../../lib/prisma';
-import { dbStatusFor } from '../../../../lib/orders/statusMap';
 import { changePostingStatus } from '../../../../lib/ozon/changeOrderStatus';
 import {
   fetchShippingLabelPdf,
@@ -22,7 +21,7 @@ function selectedLines(body) {
       postingNumber: String(row?.postingNumber || '').trim(),
       warehouse: String(row?.warehouse || '').trim(),
     }))
-    .filter((row) => row.orderId);
+    .filter((row) => row.orderId || row.postingNumber);
 }
 
 function productsOf(order) {
@@ -58,10 +57,16 @@ function readyToPack(order) {
   return order.status === 'AWAITING_PACKAGING';
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function packForLabel(order) {
-  if (waitingForPickup(order)) return order;
-  if (!readyToPack(order)) return null;
   if (!order.account) throw new Error(`${order.posting_number}: this order has no linked Ozon account.`);
+  const liveStatus = String(order.parsed?.status || '').trim();
+  if (liveStatus === 'cancelled' || order.status === 'CANCELLED') {
+    throw new Error(`${order.posting_number} is cancelled, so Ozon has no shipping label.`);
+  }
   const result = await changePostingStatus(order.account, { ...order.parsed, posting_number: order.posting_number }, 'awaiting_deliver');
   order.parsed.status = result.ozonStatus;
   await prisma.order.update({
@@ -74,6 +79,19 @@ async function packForLabel(order) {
   return { ...order, status: result.status };
 }
 
+async function printLabel(account, postingNumber) {
+  let lastError = 'Ozon did not return a shipping label.';
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt) await sleep(2000);
+    try {
+      return await fetchShippingLabelPdf(account, [postingNumber]);
+    } catch (error) {
+      lastError = error.message || lastError;
+    }
+  }
+  throw new Error(lastError);
+}
+
 function wanted(lines, orderId, sku) {
   if (!lines.length) return true;
   return lines.some((line) => line.orderId === orderId && (!line.sku || line.sku === sku));
@@ -83,60 +101,71 @@ export async function POST(request) {
   const body = await request.json().catch(() => ({}));
   const kind = body.kind === 'product' ? 'product' : body.kind === 'shipping' ? 'shipping' : '';
   const ids = [...new Set((Array.isArray(body.orderIds) ? body.orderIds : []).map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 250);
+  const lines = selectedLines(body);
+  const postingNumbers = [...new Set([
+    ...(Array.isArray(body.postingNumbers) ? body.postingNumbers : []),
+    ...lines.map((line) => line.postingNumber),
+  ].map((value) => String(value || '').trim()).filter(Boolean))].slice(0, 250);
   if (!kind) return NextResponse.json({ error: 'Choose a shipping label or a product list.' }, { status: 400 });
-  if (!ids.length) return NextResponse.json({ error: 'Select at least one product.' }, { status: 400 });
+  if (!ids.length && !postingNumbers.length) return NextResponse.json({ error: 'Select at least one product.' }, { status: 400 });
 
   const rows = await prisma.order.findMany({
-    where: { id: { in: ids } },
+    where: {
+      OR: [
+        ids.length ? { id: { in: ids } } : undefined,
+        postingNumbers.length ? { posting_number: { in: postingNumbers } } : undefined,
+      ].filter(Boolean),
+    },
   });
   const accounts = await prisma.account.findMany({
     where: { id: { in: [...new Set(rows.map((row) => row.account_id).filter(Boolean))] } },
   });
   const accountById = new Map(accounts.map((account) => [account.id, account]));
-  const byId = new Map(rows.map((row) => [row.id, row]));
-  const orders = ids.map((id) => byId.get(id)).filter(Boolean).map((row) => {
+  const hydrate = (row) => {
     let parsed = {};
     try { parsed = JSON.parse(row.raw_json || '{}'); } catch { parsed = {}; }
-    return { ...row, parsed, account: accountById.get(row.account_id) || null };
+    return { ...row, parsed, account: accountById.get(String(row.account_id)) || null };
+  };
+  const byId = new Map(rows.map((row) => [String(row.id), hydrate(row)]));
+  const byPosting = new Map(rows.map((row) => [String(row.posting_number), hydrate(row)]));
+  const orders = [
+    ...ids.map((id) => byId.get(String(id))),
+    ...postingNumbers.map((number) => byPosting.get(number)),
+  ].filter(Boolean);
+  const uniqueOrders = [];
+  const seenOrders = new Set();
+  orders.forEach((order) => {
+    if (seenOrders.has(order.id)) return;
+    seenOrders.add(order.id);
+    uniqueOrders.push(order);
   });
-  if (!orders.length) return NextResponse.json({ error: 'Those orders are not in the dashboard.' }, { status: 404 });
-
-  const lines = selectedLines(body);
+  if (!uniqueOrders.length) return NextResponse.json({ error: 'Those orders are not in the dashboard.' }, { status: 404 });
+  const orderList = uniqueOrders;
 
   try {
     if (kind === 'shipping') {
+      const selectedPostings = postingNumbers.length
+        ? postingNumbers
+        : [...new Set(orderList.map((order) => order.posting_number))];
       const pdfs = [];
       const warnings = [];
-      const printable = [];
-      for (const order of orders) {
-        try {
-          const packed = await packForLabel(order);
-          if (packed) printable.push(packed);
-          else warnings.push(`${order.posting_number}: Ozon has no shipping label for this status yet.`);
-        } catch (error) {
-          warnings.push(`${order.posting_number}: ${error.message || 'could not pack this order'}`);
+      for (const postingNumber of selectedPostings) {
+        const order = byPosting.get(postingNumber) || orderList.find((item) => item.posting_number === postingNumber);
+        if (!order) {
+          warnings.push(`${postingNumber}: this order is not in the dashboard.`);
+          continue;
         }
-      }
-      if (!printable.length) {
-        return NextResponse.json({
-          error: warnings[0] || 'Ozon could not print shipping labels for the selected orders.',
-        }, { status: 400 });
-      }
-      const printableGroups = new Map();
-      printable.forEach((order) => {
-        if (!printableGroups.has(order.account_id)) printableGroups.set(order.account_id, []);
-        printableGroups.get(order.account_id).push(order);
-      });
-      for (const group of printableGroups.values()) {
-        const account = group[0].account;
-        for (const order of group) {
-          try {
-            const file = await fetchShippingLabelPdf(account, [order.posting_number]);
-            pdfs.push(file.bytes);
-            warnings.push(...file.warnings);
-          } catch (error) {
-            warnings.push(`${order.posting_number}: ${error.message || 'shipping label was not printed'}`);
-          }
+        try {
+          await packForLabel(order);
+        } catch (error) {
+          warnings.push(error.message || `${postingNumber}: could not pack this order`);
+        }
+        try {
+          const file = await printLabel(order.account, postingNumber);
+          pdfs.push(file.bytes);
+          warnings.push(...file.warnings);
+        } catch (error) {
+          warnings.push(`${postingNumber}: ${error.message || 'shipping label was not printed'}`);
         }
       }
       if (!pdfs.length) {
@@ -145,22 +174,24 @@ export async function POST(request) {
         }, { status: 400 });
       }
       const pdf = await mergePdfs(pdfs);
+      const skipped = selectedPostings.length - pdfs.length;
       const headers = {
         'Content-Type': 'application/pdf',
         'Content-Disposition': 'attachment; filename="ozon-shipping-labels.pdf"',
         'Cache-Control': 'no-store',
+        'X-Printed-Count': String(pdfs.length),
+        'X-Requested-Count': String(selectedPostings.length),
+        'Access-Control-Expose-Headers': 'X-Document-Note, X-Printed-Count, X-Requested-Count',
       };
-      if (printable.length < orders.length) {
-        const skipped = orders.length - printable.length;
-        warnings.unshift(`${skipped} selected order${skipped === 1 ? ' was' : 's were'} skipped.`);
-      }
+      if (skipped > 0) warnings.unshift(`Printed ${pdfs.length} of ${selectedPostings.length} shipping labels.`);
       if (warnings.length) headers['X-Document-Note'] = headerNote(warnings.slice(0, 8).join(' '));
       return new NextResponse(pdf, { headers });
     }
 
     const saved = lines.length
       ? lines.map((line) => {
-        const order = orders.find((item) => item.id === line.orderId);
+        const order = orderList.find((item) => String(item.id) === String(line.orderId))
+          || byPosting.get(line.postingNumber);
         const fromOrder = order ? productsOf(order).find((product) => !line.sku || product.sku === line.sku) : null;
         return {
           orderId: line.orderId,
@@ -173,7 +204,7 @@ export async function POST(request) {
       }).filter((row) => row.postingNumber)
       : [];
     if (!saved.length) {
-      orders.forEach((order) => {
+      orderList.forEach((order) => {
         productsOf(order).forEach((product) => {
           if (wanted(lines, product.orderId, product.sku)) saved.push(product);
         });
