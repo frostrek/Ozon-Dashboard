@@ -3,7 +3,6 @@ import { prisma } from '../../../../lib/prisma';
 import { dbStatusFor } from '../../../../lib/orders/statusMap';
 import { changePostingStatus } from '../../../../lib/ozon/changeOrderStatus';
 import {
-  fetchAssemblyProducts,
   fetchShippingLabelPdf,
   mergePdfs,
   renderProductListPdf,
@@ -18,6 +17,10 @@ function selectedLines(body) {
     .map((row) => ({
       orderId: String(row?.orderId || '').trim(),
       sku: String(row?.sku || '').trim(),
+      name: String(row?.name || '').trim(),
+      quantity: Number(row?.quantity) || 1,
+      postingNumber: String(row?.postingNumber || '').trim(),
+      warehouse: String(row?.warehouse || '').trim(),
     }))
     .filter((row) => row.orderId);
 }
@@ -99,11 +102,6 @@ export async function POST(request) {
   if (!orders.length) return NextResponse.json({ error: 'Those orders are not in the dashboard.' }, { status: 404 });
 
   const lines = selectedLines(body);
-  const groups = new Map();
-  orders.forEach((order) => {
-    if (!groups.has(order.account_id)) groups.set(order.account_id, []);
-    groups.get(order.account_id).push(order);
-  });
 
   try {
     if (kind === 'shipping') {
@@ -131,10 +129,20 @@ export async function POST(request) {
       });
       for (const group of printableGroups.values()) {
         const account = group[0].account;
-        const numbers = [...new Set(group.map((order) => order.posting_number))];
-        const file = await fetchShippingLabelPdf(account, numbers);
-        pdfs.push(file.bytes);
-        warnings.push(...file.warnings);
+        for (const order of group) {
+          try {
+            const file = await fetchShippingLabelPdf(account, [order.posting_number]);
+            pdfs.push(file.bytes);
+            warnings.push(...file.warnings);
+          } catch (error) {
+            warnings.push(`${order.posting_number}: ${error.message || 'shipping label was not printed'}`);
+          }
+        }
+      }
+      if (!pdfs.length) {
+        return NextResponse.json({
+          error: warnings[0] || 'Ozon could not print shipping labels for the selected orders.',
+        }, { status: 400 });
       }
       const pdf = await mergePdfs(pdfs);
       const headers = {
@@ -150,33 +158,31 @@ export async function POST(request) {
       return new NextResponse(pdf, { headers });
     }
 
-    const saved = [];
-    const live = [];
-    const notes = [];
-    for (const group of groups.values()) {
-      const account = group[0].account;
-      const numbers = [...new Set(group.map((order) => order.posting_number))];
-      group.forEach((order) => {
+    const saved = lines.length
+      ? lines.map((line) => {
+        const order = orders.find((item) => item.id === line.orderId);
+        const fromOrder = order ? productsOf(order).find((product) => !line.sku || product.sku === line.sku) : null;
+        return {
+          orderId: line.orderId,
+          postingNumber: line.postingNumber || order?.posting_number || '',
+          warehouse: line.warehouse || order?.parsed?.delivery_method?.warehouse || '',
+          name: line.name || fromOrder?.name || 'Product',
+          sku: line.sku || fromOrder?.sku || '',
+          quantity: line.quantity || fromOrder?.quantity || 1,
+        };
+      }).filter((row) => row.postingNumber)
+      : [];
+    if (!saved.length) {
+      orders.forEach((order) => {
         productsOf(order).forEach((product) => {
           if (wanted(lines, product.orderId, product.sku)) saved.push(product);
         });
       });
-      try {
-        const found = await fetchAssemblyProducts(account, numbers);
-        found.forEach((product) => {
-          const order = group.find((item) => item.posting_number === product.postingNumber);
-          if (!order) return;
-          if (!wanted(lines, order.id, product.sku)) return;
-          live.push({ ...product, warehouse: order.parsed?.delivery_method?.warehouse || '' });
-        });
-      } catch (error) {
-        notes.push(error.message || 'Ozon did not return the product list.');
-      }
     }
-    const rowsForPdf = live.length ? live : saved;
-    if (!rowsForPdf.length) {
-      return NextResponse.json({ error: notes[0] || 'The selected orders have no products to list.' }, { status: 400 });
+    if (!saved.length) {
+      return NextResponse.json({ error: 'The selected products could not be added to the list.' }, { status: 400 });
     }
+    const rowsForPdf = saved;
     const pdf = await renderProductListPdf(rowsForPdf);
     const note = 'This product list is built here from the order details Ozon already sent. It is not Ozon’s own PDF.';
     return new NextResponse(pdf, {

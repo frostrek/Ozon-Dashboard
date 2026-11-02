@@ -341,7 +341,11 @@ export default function ProductsClient({
       if (!groups[key]) groups[key] = [];
       groups[key].push(product);
     });
-    return groups;
+    const ranked = Object.entries(groups).sort((left, right) => {
+      const latest = (group) => Math.max(0, ...group.map((product) => new Date(product.ozon_created_at || product.created_at || 0).getTime() || 0));
+      return latest(right[1]) - latest(left[1]);
+    });
+    return Object.fromEntries(ranked);
   }, [products]);
 
   const groupEntries = Object.entries(variantGroups);

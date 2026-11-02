@@ -79,7 +79,7 @@ export async function GET(request) {
     prisma.order.findMany({
       where,
       take: 400,
-      orderBy: { updated_at: 'desc' },
+      orderBy: [{ created_at: 'desc' }, { updated_at: 'desc' }],
     }),
   ]);
   const names = await accountNamesById(dbOrders.map((order) => order.account_id));
@@ -115,9 +115,16 @@ export async function GET(request) {
         sku: offer,
         quantity: Number(product?.quantity) || (product ? 1 : 0),
         warehouse: place,
-        shipBy: parsed.shipment_date || '',
+        shipBy: parsed.shipment_date || parsed.in_process_at || order.created_at,
+        createdAt: order.created_at,
       });
     });
+  });
+
+  products.sort((a, b) => {
+    const aTime = new Date(a.createdAt || a.shipBy || 0).getTime();
+    const bTime = new Date(b.createdAt || b.shipBy || 0).getTime();
+    return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
   });
 
   return NextResponse.json({

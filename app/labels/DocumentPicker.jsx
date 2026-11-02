@@ -143,7 +143,14 @@ export default function DocumentPicker({ onMessage }) {
       const message = await downloadDocument(
         kind,
         [...new Set(chosen.map((row) => row.orderId))],
-        chosen.map((row) => ({ orderId: row.orderId, sku: row.sku })),
+        chosen.map((row) => ({
+          orderId: row.orderId,
+          sku: row.sku,
+          name: row.name,
+          quantity: row.quantity,
+          postingNumber: row.postingNumber,
+          warehouse: row.warehouse,
+        })),
       );
       onMessage?.(message || (kind === 'shipping' ? 'Shipping labels downloaded from Ozon.' : 'Product list downloaded.'));
     } catch (err) {
