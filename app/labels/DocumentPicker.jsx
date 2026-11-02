@@ -36,7 +36,17 @@ function shipBy(value) {
   return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-async function downloadDocument(kind, orderIds, lines, postingNumbers = []) {
+const SHIP_CHUNK = 20;
+
+function saveBlob(blob, filename) {
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+async function requestDocument(kind, orderIds, lines, postingNumbers) {
   const response = await fetch('/api/labels/documents', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -46,20 +56,58 @@ async function downloadDocument(kind, orderIds, lines, postingNumbers = []) {
     const data = await response.json().catch(() => ({}));
     throw new Error(data.error || 'Ozon did not return the document.');
   }
-  const blob = await response.blob();
-  const note = response.headers.get('X-Document-Note') || '';
-  const printed = Number(response.headers.get('X-Printed-Count') || 0);
-  const requested = Number(response.headers.get('X-Requested-Count') || 0);
-  const filename = kind === 'shipping' ? 'ozon-shipping-labels.pdf' : 'ozon-product-list.pdf';
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(link.href);
-  if (kind === 'shipping' && requested && printed < requested) {
-    return note || `Printed ${printed} of ${requested} shipping labels.`;
+  return {
+    bytes: await response.arrayBuffer(),
+    note: response.headers.get('X-Document-Note') || '',
+    printed: Number(response.headers.get('X-Printed-Count') || 0),
+    requested: Number(response.headers.get('X-Requested-Count') || 0),
+  };
+}
+
+async function mergePdfBuffers(buffers) {
+  const files = buffers.filter((item) => item && item.byteLength);
+  if (!files.length) throw new Error('Ozon did not return a shipping-label PDF.');
+  if (files.length === 1) return files[0];
+  const { PDFDocument } = await import('pdf-lib');
+  const merged = await PDFDocument.create();
+  for (const bytes of files) {
+    const doc = await PDFDocument.load(bytes);
+    const pages = await merged.copyPages(doc, doc.getPageIndices());
+    pages.forEach((page) => merged.addPage(page));
   }
-  return note;
+  return merged.save();
+}
+
+async function downloadDocument(kind, orderIds, lines, postingNumbers = [], onProgress) {
+  if (kind === 'shipping' && postingNumbers.length > SHIP_CHUNK) {
+    const buffers = [];
+    const notes = [];
+    let printed = 0;
+    for (let index = 0; index < postingNumbers.length; index += SHIP_CHUNK) {
+      const chunk = postingNumbers.slice(index, index + SHIP_CHUNK);
+      onProgress?.(Math.min(index + chunk.length, postingNumbers.length), postingNumbers.length);
+      const chunkLines = lines.filter((line) => chunk.includes(line.postingNumber));
+      const chunkIds = [...new Set(chunkLines.map((line) => line.orderId).filter(Boolean))];
+      const part = await requestDocument('shipping', chunkIds, chunkLines, chunk);
+      buffers.push(part.bytes);
+      printed += part.printed || (part.bytes?.byteLength ? chunk.length : 0);
+      if (part.note) notes.push(part.note);
+    }
+    saveBlob(new Blob([await mergePdfBuffers(buffers)], { type: 'application/pdf' }), 'ozon-shipping-labels.pdf');
+    if (printed < postingNumbers.length) {
+      return notes[0] || `Printed ${printed} of ${postingNumbers.length} shipping labels.`;
+    }
+    return `Downloaded ${printed} shipping labels.`;
+  }
+
+  onProgress?.(postingNumbers.length || lines.length, postingNumbers.length || lines.length);
+  const part = await requestDocument(kind, orderIds, lines, postingNumbers);
+  const filename = kind === 'shipping' ? 'ozon-shipping-labels.pdf' : 'ozon-product-list.pdf';
+  saveBlob(new Blob([part.bytes], { type: 'application/pdf' }), filename);
+  if (kind === 'shipping' && part.requested && part.printed < part.requested) {
+    return part.note || `Printed ${part.printed} of ${part.requested} shipping labels.`;
+  }
+  return part.note;
 }
 
 export default function DocumentPicker({ onMessage }) {
@@ -71,6 +119,7 @@ export default function DocumentPicker({ onMessage }) {
   const [selected, setSelected] = useState(() => new Set());
   const [state, setState] = useState('loading');
   const [busy, setBusy] = useState('');
+  const [progress, setProgress] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   useEffect(() => {
@@ -138,7 +187,9 @@ export default function DocumentPicker({ onMessage }) {
   async function download(kind) {
     const chosen = products.filter((row) => selected.has(row.key));
     if (!chosen.length || busy) return;
+    const postings = [...new Set(chosen.map((row) => row.postingNumber).filter(Boolean))];
     setBusy(kind);
+    setProgress(kind === 'shipping' ? `0 of ${postings.length}` : '');
     try {
       const message = await downloadDocument(
         kind,
@@ -151,9 +202,9 @@ export default function DocumentPicker({ onMessage }) {
           postingNumber: row.postingNumber,
           warehouse: row.warehouse,
         })),
-        [...new Set(chosen.map((row) => row.postingNumber).filter(Boolean))],
+        postings,
+        (done, total) => setProgress(`${done} of ${total}`),
       );
-      const postings = [...new Set(chosen.map((row) => row.postingNumber).filter(Boolean))];
       onMessage?.(message || (kind === 'shipping'
         ? `Downloaded ${postings.length} shipping labels.`
         : `Downloaded product list with ${chosen.length} products.`));
@@ -161,6 +212,7 @@ export default function DocumentPicker({ onMessage }) {
       onMessage?.(err.message, 'error');
     } finally {
       setBusy('');
+      setProgress('');
     }
   }
 
@@ -215,7 +267,7 @@ export default function DocumentPicker({ onMessage }) {
         </div>
         <div>
           <button type="button" className="dash-outline" disabled={!selected.size || Boolean(busy)} onClick={() => download('shipping')}>
-            {busy === 'shipping' ? `Downloading ${selected.size} labels...` : 'Download shipping labels'}
+            {busy === 'shipping' ? `Downloading labels ${progress || selected.size}...` : 'Download shipping labels'}
           </button>
           <button type="button" className="dash-primary" disabled={!selected.size || Boolean(busy)} onClick={() => download('product')}>
             {busy === 'product' ? 'Downloading list...' : 'Download product list'}

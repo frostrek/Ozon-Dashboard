@@ -61,6 +61,7 @@ async function packForLabel(order) {
   if (liveStatus === 'cancelled' || order.status === 'CANCELLED') {
     throw new Error(`${order.posting_number} is cancelled, so Ozon has no shipping label.`);
   }
+  if (liveStatus === 'awaiting_deliver' || order.status === 'AWAITING_DELIVERY') return order;
   const result = await changePostingStatus(order.account, { ...order.parsed, posting_number: order.posting_number }, 'awaiting_deliver');
   order.parsed.status = result.ozonStatus;
   await prisma.order.update({
