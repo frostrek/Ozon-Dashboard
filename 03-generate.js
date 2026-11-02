@@ -6,189 +6,155 @@ import Handlebars from "handlebars";
 import { PDFDocument } from "pdf-lib";
 import { CONFIG } from "./config.js";
 
-export async function generatePdfs(runDir, logger) {
-  const inputFile = path.join(runDir, CONFIG.filenames.translated);
-  const outputDir = path.join(runDir, CONFIG.filenames.renderDir);
-  const finalPdfPath = path.join(runDir, CONFIG.filenames.finalPdf);
-  const templatePath = path.join(process.cwd(), "template.html");
-
-  await mkdir(outputDir, { recursive: true });
-
-  function registerHelpers() {
-    Handlebars.registerHelper("formatDate", (isoString) => {
-      if (!isoString) return "-";
-      const d = new Date(isoString);
-      if (isNaN(d)) return "-";
-      const dd = String(d.getUTCDate()).padStart(2, "0");
-      const mo = d.toLocaleString("en-GB", { month: "short", timeZone: "UTC" });
-      const yyyy = d.getUTCFullYear();
-      return `${dd} ${mo} ${yyyy}`;
-    });
-
-    Handlebars.registerHelper("formatWeight", (weight, unit) => {
-      if (weight == null) return "-";
-      const kg = unit === "g" ? weight / 1000 : weight;
-      return kg.toFixed(3) + " kg";
-    });
-
-    Handlebars.registerHelper("findById", function (arr, id) {
-      return Array.isArray(arr)
-        ? arr.find((x) => x.product_id === id)
-        : undefined;
-    });
-
-    Handlebars.registerHelper("totalWeight", (products) => {
-      if (!Array.isArray(products)) return "-";
-      const kg = products.reduce((sum, p) => {
-        const w = p.dimensions?.weight || 0;
-        const unit = p.dimensions?.weight_unit;
-        return sum + (unit === "g" ? w / 1000 : w);
-      }, 0);
-      return kg.toFixed(3) + " kg";
-    });
-
-    Handlebars.registerHelper("eq", (a, b) => a === b);
-    Handlebars.registerHelper("gt", (a, b) => a > b);
+function amountOf(value) {
+  if (value == null || value === "") return "";
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "string") {
+    const text = value.trim();
+    return text === "[object Object]" ? "" : text;
   }
+  if (typeof value === "object") {
+    return amountOf(value.amount ?? value.value ?? value.price);
+  }
+  return "";
+}
 
-  async function mergePdfs(pdfPaths, outputPath) {
-    const merged = await PDFDocument.create();
+function currencyOf(value, fallback = "") {
+  if (typeof value === "string" && value.trim() && value.trim() !== "[object Object]") {
+    return value.trim();
+  }
+  if (value && typeof value === "object") {
+    return String(value.currency || value.currency_code || fallback || "").trim();
+  }
+  return String(fallback || "").trim();
+}
 
-    for (const filePath of pdfPaths) {
-      const bytes = await Bun.file(filePath).arrayBuffer();
-      const doc = await PDFDocument.load(bytes);
-      const pages = await merged.copyPages(doc, doc.getPageIndices());
-      pages.forEach((p) => merged.addPage(p));
+function formatMoney(value, fallbackCurrency) {
+  const amount = amountOf(value);
+  if (!amount) return "—";
+  const currency = currencyOf(value, fallbackCurrency);
+  return currency ? `${amount} ${currency}` : amount;
+}
+
+function firstHttpUrl(value) {
+  if (!value) return "";
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (/^https?:\/\//i.test(text) || text.startsWith("data:image/")) return text;
+    return "";
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const url = firstHttpUrl(item);
+      if (url) return url;
     }
-
-    const mergedBytes = await merged.save();
-    await Bun.write(outputPath, mergedBytes);
+    return "";
   }
-
-  async function renderOrder(browser, template, order) {
-    if (order.financial_data?.products && order.products) {
-      const skuToFinancial = {};
-
-      for (const fp of order.financial_data.products) {
-        skuToFinancial[fp.product_id] = fp;
-      }
-
-      order.financial_data.products = order.products
-        .map((p) => {
-          const fin = skuToFinancial[p.sku];
-          if (fin) return { ...fin, product_id: p.product_id };
-          return null;
-        })
-        .filter(Boolean);
-    }
-
-    const html = template(order);
-    const page = await browser.newPage();
-
-    try {
-      page.setDefaultNavigationTimeout(20000);
-      page.setDefaultTimeout(20000);
-      await page.setRequestInterception(true);
-      page.on("request", (request) => {
-        const type = request.resourceType();
-        const url = request.url();
-        if ((type === "image" || type === "media") && /^https?:/i.test(url)) {
-          return request.abort();
-        }
-        return request.continue();
-      });
-
-      await page.setContent(html, { waitUntil: "domcontentloaded", timeout: 15000 });
-
-      const filePath = path.join(outputDir, `${order.posting_number}.pdf`);
-
-      await page.pdf({
-        path: filePath,
-        format: "A4",
-        printBackground: true,
-        margin: {
-          top: "10mm",
-          bottom: "10mm",
-          left: "10mm",
-          right: "10mm",
-        },
-      });
-
-      return { ok: true, file: filePath };
-    } finally {
-      await page.close();
-    }
+  if (typeof value === "object") {
+    return firstHttpUrl(value.url || value.src || value.href || value.file_name);
   }
+  return "";
+}
 
-  const inputBunFile = Bun.file(inputFile);
-  if (!(await inputBunFile.exists())) {
-    throw new Error(`Input file not found: ${inputFile}`);
-  }
+function productImageUrl(product) {
+  return firstHttpUrl(
+    product?.photo
+    || product?.primary_image
+    || product?.image
+    || product?.images
+    || product?.picture,
+  );
+}
 
-  const dataArray = await inputBunFile.json();
+function guessImageType(bytes, url) {
+  if (bytes[0] === 0x89 && bytes[1] === 0x50) return "image/png";
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) return "image/jpeg";
+  if (bytes[0] === 0x47 && bytes[1] === 0x49) return "image/gif";
+  if (bytes[0] === 0x52 && bytes[1] === 0x49) return "image/webp";
+  if (/\.png(\?|$)/i.test(url)) return "image/png";
+  if (/\.webp(\?|$)/i.test(url)) return "image/webp";
+  return "image/jpeg";
+}
 
-  const templateSource = await Bun.file(templatePath).text();
-  registerHelpers();
-  const template = Handlebars.compile(templateSource);
-
-  logger.info("🚀 Launching browser...");
-
-  const browser = await launchChrome();
-
-  const ok = [];
-
+async function asDataUrl(url) {
+  if (!url) return "";
+  if (url.startsWith("data:image/")) return url;
   try {
-    const CONCURRENCY = process.env.RENDER ? 1 : 2;
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(8000),
+      headers: { "User-Agent": "Mozilla/5.0", Accept: "image/*" },
+    });
+    if (!response.ok) return "";
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length < 24 || bytes.length > 2_500_000) return "";
+    const headerType = String(response.headers.get("content-type") || "").split(";")[0].trim();
+    const type = headerType.startsWith("image/") ? headerType : guessImageType(bytes, url);
+    return `data:${type};base64,${bytes.toString("base64")}`;
+  } catch {
+    return "";
+  }
+}
 
-    for (let i = 0; i < dataArray.length; i += CONCURRENCY) {
-      const batch = dataArray.slice(i, i + CONCURRENCY);
-
-      await Promise.all(
-        batch.map(async (order) => {
-          try {
-            const result = await renderOrder(browser, template, order);
-            ok.push(result);
-            logger.debug(`✅ Generated PDF for ${order.posting_number}`);
-          } catch (err) {
-            logger.error(
-              `❌ Failed PDF for ${order.posting_number}: ${err.message}`,
-            );
-          }
-        }),
-      );
+async function imageCacheFor(orders) {
+  const urls = new Set();
+  for (const order of orders) {
+    for (const product of order?.products || []) {
+      const url = productImageUrl(product);
+      if (url) urls.add(url);
     }
-  } finally {
-    await browser.close();
   }
-
-  if (ok.length > 0) {
-    const orderedPaths = dataArray
-      .map((order) =>
-        ok.find((r) => path.basename(r.file) === `${order.posting_number}.pdf`),
-      )
-      .filter(Boolean)
-      .map((r) => r.file);
-
-    await mergePdfs(orderedPaths, finalPdfPath);
-    logger.info(`📄 Final PDF created: ${finalPdfPath}`);
+  const cache = new Map();
+  const list = [...urls];
+  const batchSize = 6;
+  for (let index = 0; index < list.length; index += batchSize) {
+    const batch = list.slice(index, index + batchSize);
+    await Promise.all(batch.map(async (url) => {
+      cache.set(url, await asDataUrl(url));
+    }));
   }
-
-  logger.info(`⚡ Done — ${ok.length}/${dataArray.length} PDFs generated.`);
+  return cache;
 }
 
-async function launchChrome() {
-  const { launchPdfBrowser } = await import("./lib/ozon/pdfBrowser.js");
-  return launchPdfBrowser();
+function alignFinancialProducts(order) {
+  if (!order.financial_data?.products || !order.products) return;
+  const byId = {};
+  for (const row of order.financial_data.products) {
+    byId[row.product_id] = row;
+  }
+  order.financial_data.products = order.products
+    .map((product) => {
+      const row = byId[product.sku] || byId[product.product_id];
+      return row ? { ...row, product_id: product.product_id } : null;
+    })
+    .filter(Boolean);
 }
 
-function registerPdfHelpers() {
+function prepareOrder(order, imageCache) {
+  const copy = structuredClone(order);
+  alignFinancialProducts(copy);
+  for (const product of copy.products || []) {
+    product.currency_code = currencyOf(product.price, product.currency_code);
+    const amount = amountOf(product.price);
+    if (amount) product.price = amount;
+    const url = productImageUrl(product);
+    product.photo = (url && imageCache.get(url)) || "";
+  }
+  for (const row of copy.financial_data?.products || []) {
+    row.customer_currency_code = currencyOf(row.customer_price, row.customer_currency_code || row.currency_code);
+    const paid = amountOf(row.customer_price);
+    if (paid) row.customer_price = paid;
+  }
+  return copy;
+}
+
+function registerHelpers() {
   Handlebars.registerHelper("formatDate", (isoString) => {
     if (!isoString) return "-";
-    const d = new Date(isoString);
-    if (isNaN(d)) return "-";
-    const dd = String(d.getUTCDate()).padStart(2, "0");
-    const mo = d.toLocaleString("en-GB", { month: "short", timeZone: "UTC" });
-    const yyyy = d.getUTCFullYear();
+    const date = new Date(isoString);
+    if (isNaN(date)) return "-";
+    const dd = String(date.getUTCDate()).padStart(2, "0");
+    const mo = date.toLocaleString("en-GB", { month: "short", timeZone: "UTC" });
+    const yyyy = date.getUTCFullYear();
     return `${dd} ${mo} ${yyyy}`;
   });
   Handlebars.registerHelper("formatWeight", (weight, unit) => {
@@ -196,6 +162,9 @@ function registerPdfHelpers() {
     const kg = unit === "g" ? weight / 1000 : weight;
     return kg.toFixed(3) + " kg";
   });
+  Handlebars.registerHelper("formatMoney", (value, fallbackCurrency) => (
+    formatMoney(value, typeof fallbackCurrency === "string" ? fallbackCurrency : "")
+  ));
   Handlebars.registerHelper("findById", (arr, id) => (
     Array.isArray(arr) ? arr.find((item) => item.product_id === id) : undefined
   ));
@@ -212,52 +181,120 @@ function registerPdfHelpers() {
   Handlebars.registerHelper("gt", (a, b) => a > b);
 }
 
+async function mergePdfs(pdfPaths, outputPath) {
+  const merged = await PDFDocument.create();
+  for (const filePath of pdfPaths) {
+    const bytes = await Bun.file(filePath).arrayBuffer();
+    const doc = await PDFDocument.load(bytes);
+    const pages = await merged.copyPages(doc, doc.getPageIndices());
+    pages.forEach((page) => merged.addPage(page));
+  }
+  await Bun.write(outputPath, await merged.save());
+}
+
+async function launchChrome() {
+  const { launchPdfBrowser } = await import("./lib/ozon/pdfBrowser.js");
+  return launchPdfBrowser();
+}
+
+async function htmlToPdf(browser, html) {
+  const page = await browser.newPage();
+  try {
+    page.setDefaultNavigationTimeout(20000);
+    page.setDefaultTimeout(20000);
+    await page.setRequestInterception(true);
+    page.on("request", (request) => {
+      const type = request.resourceType();
+      const url = request.url();
+      if ((type === "image" || type === "media") && /^https?:/i.test(url)) {
+        return request.abort();
+      }
+      return request.continue();
+    });
+    await page.setContent(html, { waitUntil: "domcontentloaded", timeout: 15000 });
+    return await page.pdf({
+      format: "A4",
+      printBackground: true,
+      margin: { top: "10mm", bottom: "10mm", left: "10mm", right: "10mm" },
+    });
+  } finally {
+    await page.close();
+  }
+}
+
+export async function generatePdfs(runDir, logger) {
+  const inputFile = path.join(runDir, CONFIG.filenames.translated);
+  const outputDir = path.join(runDir, CONFIG.filenames.renderDir);
+  const finalPdfPath = path.join(runDir, CONFIG.filenames.finalPdf);
+  const templatePath = path.join(process.cwd(), "template.html");
+
+  await mkdir(outputDir, { recursive: true });
+
+  const inputBunFile = Bun.file(inputFile);
+  if (!(await inputBunFile.exists())) {
+    throw new Error(`Input file not found: ${inputFile}`);
+  }
+
+  const dataArray = await inputBunFile.json();
+  registerHelpers();
+  const template = Handlebars.compile(await Bun.file(templatePath).text());
+  const imageCache = await imageCacheFor(dataArray);
+  logger.info(`Embedded ${[...imageCache.values()].filter(Boolean).length}/${imageCache.size} product image(s) for the PDF.`);
+
+  logger.info("🚀 Launching browser...");
+  const browser = await launchChrome();
+  const ok = [];
+
+  try {
+    const CONCURRENCY = process.env.RENDER ? 1 : 2;
+    for (let i = 0; i < dataArray.length; i += CONCURRENCY) {
+      const batch = dataArray.slice(i, i + CONCURRENCY);
+      await Promise.all(batch.map(async (order) => {
+        try {
+          const prepared = prepareOrder(order, imageCache);
+          const bytes = await htmlToPdf(browser, template(prepared));
+          const filePath = path.join(outputDir, `${order.posting_number}.pdf`);
+          await Bun.write(filePath, bytes);
+          ok.push({ file: filePath });
+          logger.debug(`✅ Generated PDF for ${order.posting_number}`);
+        } catch (err) {
+          logger.error(`❌ Failed PDF for ${order.posting_number}: ${err.message}`);
+        }
+      }));
+    }
+  } finally {
+    await browser.close();
+  }
+
+  if (ok.length > 0) {
+    const orderedPaths = dataArray
+      .map((order) => ok.find((row) => path.basename(row.file) === `${order.posting_number}.pdf`))
+      .filter(Boolean)
+      .map((row) => row.file);
+    await mergePdfs(orderedPaths, finalPdfPath);
+    logger.info(`📄 Final PDF created: ${finalPdfPath}`);
+  }
+
+  logger.info(`⚡ Done — ${ok.length}/${dataArray.length} PDFs generated.`);
+}
+
 export async function renderOrdersToPdf(orders) {
   const list = Array.isArray(orders) ? orders.filter((order) => order?.posting_number) : [];
   if (!list.length) throw new Error("Select at least one order.");
 
-  registerPdfHelpers();
+  registerHelpers();
   const template = Handlebars.compile(await readFile(path.join(process.cwd(), "template.html"), "utf8"));
+  const imageCache = await imageCacheFor(list);
   const browser = await launchChrome();
   const merged = await PDFDocument.create();
-  const concurrency = 3;
+  const concurrency = process.env.RENDER ? 1 : 3;
 
   try {
     for (let index = 0; index < list.length; index += concurrency) {
       const batch = list.slice(index, index + concurrency);
       const pages = await Promise.all(batch.map(async (order) => {
-        const copy = structuredClone(order);
-        if (copy.financial_data?.products && copy.products) {
-          const bySku = {};
-          for (const row of copy.financial_data.products) bySku[row.product_id] = row;
-          copy.financial_data.products = copy.products
-            .map((product) => {
-              const row = bySku[product.sku];
-              return row ? { ...row, product_id: product.product_id } : null;
-            })
-            .filter(Boolean);
-        }
-        const page = await browser.newPage();
-        try {
-          page.setDefaultTimeout(20000);
-          await page.setRequestInterception(true);
-          page.on("request", (request) => {
-            const type = request.resourceType();
-            const url = request.url();
-            if ((type === "image" || type === "media") && /^https?:/i.test(url)) {
-              return request.abort();
-            }
-            return request.continue();
-          });
-          await page.setContent(template(copy), { waitUntil: "domcontentloaded", timeout: 15000 });
-          return await page.pdf({
-            format: "A4",
-            printBackground: true,
-            margin: { top: "10mm", bottom: "10mm", left: "10mm", right: "10mm" },
-          });
-        } finally {
-          await page.close();
-        }
+        const prepared = prepareOrder(order, imageCache);
+        return htmlToPdf(browser, template(prepared));
       }));
       for (const bytes of pages) {
         const doc = await PDFDocument.load(bytes);

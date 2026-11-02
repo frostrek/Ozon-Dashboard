@@ -535,8 +535,8 @@
           <tr>
             <td>
               <div class="product-photo">
-                {{#if primary_image.[0]}}
-                  <img src="{{primary_image.[0]}}" alt="">
+                {{#if photo}}
+                  <img src="{{photo}}" alt="">
                 {{else}}
                   📦
                 {{/if}}
@@ -550,17 +550,12 @@
             <td>
               <div class="price-verified">
                 <span class="check">✓</span>
-                {{currency_code}} {{price}}
+                {{formatMoney price currency_code}}
               </div>
             </td>
             <td class="price-buyer">
-              {{!--
-                Match by product_id instead of array index.
-                Requires a `findById` helper registered in your Handlebars setup:
-                  hbs.registerHelper('findById', (arr, id) => arr?.find(x => x.product_id === id));
-              --}}
               {{#with (findById ../financial_data.products product_id)}}
-                {{customer_price}} {{customer_currency_code}}
+                {{formatMoney customer_price customer_currency_code}}
               {{else}}
                 <span class="muted">—</span>
               {{/with}}

@@ -183,7 +183,11 @@ export async function fetchOrders(runDir, logger) {
       const { items = [] } = await res.json();
       for (const item of items) {
         if (item.offer_id) {
-          result[item.offer_id] = { product_id: item.id, primary_image: item.primary_image };
+          const image = item.primary_image;
+          const urls = Array.isArray(image)
+            ? image.filter((value) => typeof value === "string" && /^https?:\/\//i.test(value))
+            : (typeof image === "string" && /^https?:\/\//i.test(image) ? [image] : []);
+          result[item.offer_id] = { product_id: item.id, primary_image: urls };
         }
       }
     }
