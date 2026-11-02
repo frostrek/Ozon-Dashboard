@@ -86,24 +86,19 @@ export async function generatePdfs(runDir, logger) {
     const page = await browser.newPage();
 
     try {
-      page.setDefaultNavigationTimeout(30000);
-      page.setDefaultTimeout(30000);
+      page.setDefaultNavigationTimeout(20000);
+      page.setDefaultTimeout(20000);
+      await page.setRequestInterception(true);
+      page.on("request", (request) => {
+        const type = request.resourceType();
+        const url = request.url();
+        if ((type === "image" || type === "media") && /^https?:/i.test(url)) {
+          return request.abort();
+        }
+        return request.continue();
+      });
 
-      await page.setContent(html, { waitUntil: "load" });
-
-      await page.evaluate(() =>
-        Promise.all(
-          Array.from(document.images)
-            .filter((img) => !img.complete)
-            .map(
-              (img) =>
-                new Promise((resolve) => {
-                  img.onload = resolve;
-                  img.onerror = resolve;
-                }),
-            ),
-        ),
-      );
+      await page.setContent(html, { waitUntil: "domcontentloaded", timeout: 15000 });
 
       const filePath = path.join(outputDir, `${order.posting_number}.pdf`);
 
@@ -143,7 +138,7 @@ export async function generatePdfs(runDir, logger) {
   const ok = [];
 
   try {
-    const CONCURRENCY = 5;
+    const CONCURRENCY = process.env.RENDER ? 1 : 2;
 
     for (let i = 0; i < dataArray.length; i += CONCURRENCY) {
       const batch = dataArray.slice(i, i + CONCURRENCY);
@@ -244,8 +239,17 @@ export async function renderOrdersToPdf(orders) {
         }
         const page = await browser.newPage();
         try {
-          page.setDefaultTimeout(30000);
-          await page.setContent(template(copy), { waitUntil: "load" });
+          page.setDefaultTimeout(20000);
+          await page.setRequestInterception(true);
+          page.on("request", (request) => {
+            const type = request.resourceType();
+            const url = request.url();
+            if ((type === "image" || type === "media") && /^https?:/i.test(url)) {
+              return request.abort();
+            }
+            return request.continue();
+          });
+          await page.setContent(template(copy), { waitUntil: "domcontentloaded", timeout: 15000 });
           return await page.pdf({
             format: "A4",
             printBackground: true,

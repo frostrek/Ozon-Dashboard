@@ -63,7 +63,7 @@ export async function GET(req) {
                 send('log', { line: `Could not read log: ${err.message}` });
               }
             }
-          } else if (!announcedWait && !run.log_excerpt) {
+          } else if (!announcedWait && !run.log_excerpt && Date.now() - startedAt > 4000) {
             announcedWait = true;
             send('log', { line: 'Waiting for the pipeline to create its run folder...' });
           }
