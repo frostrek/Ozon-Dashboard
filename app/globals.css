@@ -3268,6 +3268,19 @@ textarea {
   margin: 0;
   color: var(--text-muted);
   font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.label-select-all {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: #2563EB;
+  font-weight: 650;
+  cursor: pointer;
 }
 
 .label-filters {

@@ -78,7 +78,7 @@ export async function GET(request) {
     prisma.account.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
     prisma.order.findMany({
       where,
-      take: 400,
+      take: 2000,
       orderBy: [{ created_at: 'desc' }, { updated_at: 'desc' }],
     }),
   ]);

@@ -8,7 +8,10 @@ import {
 } from '../../../../lib/ozon/fbsDocuments';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 180;
+export const maxDuration = 300;
+
+const LABEL_BATCH = 20;
+const PACK_CONCURRENCY = 4;
 
 function selectedLines(body) {
   const rows = Array.isArray(body.lines) ? body.lines : [];
@@ -41,24 +44,15 @@ function headerNote(value) {
   return String(value || '').replace(/[^\x20-\x7E]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500);
 }
 
-function ozonStatusOf(order) {
-  return String(order.parsed?.status || '').trim();
-}
-
-function waitingForPickup(order) {
-  const ozonStatus = ozonStatusOf(order);
-  if (ozonStatus) return ozonStatus === 'awaiting_deliver';
-  return order.status === 'AWAITING_DELIVERY';
-}
-
-function readyToPack(order) {
-  const ozonStatus = ozonStatusOf(order);
-  if (ozonStatus) return ozonStatus === 'awaiting_packaging' || ozonStatus === 'awaiting_approve';
-  return order.status === 'AWAITING_PACKAGING';
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+async function runPool(items, size, worker) {
+  const queue = [...items];
+  await Promise.all(Array.from({ length: Math.min(size, queue.length) || 1 }, async () => {
+    while (queue.length) {
+      const item = queue.shift();
+      if (!item) break;
+      await worker(item);
+    }
+  }));
 }
 
 async function packForLabel(order) {
@@ -79,17 +73,41 @@ async function packForLabel(order) {
   return { ...order, status: result.status };
 }
 
-async function printLabel(account, postingNumber) {
-  let lastError = 'Ozon did not return a shipping label.';
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (attempt) await sleep(2000);
+function unprintedFrom(warnings, batch) {
+  const wanted = new Set(batch);
+  return (warnings || [])
+    .map((row) => String(row).split(':')[0].trim())
+    .filter((number) => wanted.has(number));
+}
+
+async function printBatch(account, numbers, warnings) {
+  const pdfs = [];
+  let printed = 0;
+  for (let index = 0; index < numbers.length; index += LABEL_BATCH) {
+    const batch = numbers.slice(index, index + LABEL_BATCH);
+    let leftover = batch;
     try {
-      return await fetchShippingLabelPdf(account, [postingNumber]);
+      const file = await fetchShippingLabelPdf(account, batch);
+      pdfs.push(file.bytes);
+      warnings.push(...file.warnings);
+      leftover = unprintedFrom(file.warnings, batch);
+      printed += batch.length - leftover.length;
     } catch (error) {
-      lastError = error.message || lastError;
+      leftover = batch;
+      warnings.push(error.message || 'A batch of shipping labels could not be printed.');
+    }
+    for (const postingNumber of leftover) {
+      try {
+        const file = await fetchShippingLabelPdf(account, [postingNumber]);
+        pdfs.push(file.bytes);
+        warnings.push(...file.warnings);
+        printed += 1;
+      } catch (error) {
+        warnings.push(`${postingNumber}: ${error.message || 'shipping label was not printed'}`);
+      }
     }
   }
-  throw new Error(lastError);
+  return { pdfs, printed };
 }
 
 function wanted(lines, orderId, sku) {
@@ -100,12 +118,12 @@ function wanted(lines, orderId, sku) {
 export async function POST(request) {
   const body = await request.json().catch(() => ({}));
   const kind = body.kind === 'product' ? 'product' : body.kind === 'shipping' ? 'shipping' : '';
-  const ids = [...new Set((Array.isArray(body.orderIds) ? body.orderIds : []).map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 250);
+  const ids = [...new Set((Array.isArray(body.orderIds) ? body.orderIds : []).map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 1000);
   const lines = selectedLines(body);
   const postingNumbers = [...new Set([
     ...(Array.isArray(body.postingNumbers) ? body.postingNumbers : []),
     ...lines.map((line) => line.postingNumber),
-  ].map((value) => String(value || '').trim()).filter(Boolean))].slice(0, 250);
+  ].map((value) => String(value || '').trim()).filter(Boolean))].slice(0, 1000);
   if (!kind) return NextResponse.json({ error: 'Choose a shipping label or a product list.' }, { status: 400 });
   if (!ids.length && !postingNumbers.length) return NextResponse.json({ error: 'Select at least one product.' }, { status: 400 });
 
@@ -147,26 +165,34 @@ export async function POST(request) {
       const selectedPostings = postingNumbers.length
         ? postingNumbers
         : [...new Set(orderList.map((order) => order.posting_number))];
-      const pdfs = [];
       const warnings = [];
-      for (const postingNumber of selectedPostings) {
+      const printable = [];
+      await runPool(selectedPostings, PACK_CONCURRENCY, async (postingNumber) => {
         const order = byPosting.get(postingNumber) || orderList.find((item) => item.posting_number === postingNumber);
         if (!order) {
           warnings.push(`${postingNumber}: this order is not in the dashboard.`);
-          continue;
+          return;
         }
         try {
           await packForLabel(order);
         } catch (error) {
           warnings.push(error.message || `${postingNumber}: could not pack this order`);
         }
-        try {
-          const file = await printLabel(order.account, postingNumber);
-          pdfs.push(file.bytes);
-          warnings.push(...file.warnings);
-        } catch (error) {
-          warnings.push(`${postingNumber}: ${error.message || 'shipping label was not printed'}`);
-        }
+        if (order.account) printable.push(order);
+      });
+      const pdfs = [];
+      let printed = 0;
+      const groups = new Map();
+      printable.forEach((order) => {
+        const key = String(order.account_id);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(order);
+      });
+      for (const group of groups.values()) {
+        const numbers = [...new Set(group.map((order) => order.posting_number))];
+        const file = await printBatch(group[0].account, numbers, warnings);
+        pdfs.push(...file.pdfs);
+        printed += file.printed;
       }
       if (!pdfs.length) {
         return NextResponse.json({
@@ -174,17 +200,18 @@ export async function POST(request) {
         }, { status: 400 });
       }
       const pdf = await mergePdfs(pdfs);
-      const skipped = selectedPostings.length - pdfs.length;
       const headers = {
         'Content-Type': 'application/pdf',
         'Content-Disposition': 'attachment; filename="ozon-shipping-labels.pdf"',
         'Cache-Control': 'no-store',
-        'X-Printed-Count': String(pdfs.length),
+        'X-Printed-Count': String(printed),
         'X-Requested-Count': String(selectedPostings.length),
         'Access-Control-Expose-Headers': 'X-Document-Note, X-Printed-Count, X-Requested-Count',
       };
-      if (skipped > 0) warnings.unshift(`Printed ${pdfs.length} of ${selectedPostings.length} shipping labels.`);
-      if (warnings.length) headers['X-Document-Note'] = headerNote(warnings.slice(0, 8).join(' '));
+      if (printed < selectedPostings.length) {
+        warnings.unshift(`Printed ${printed} of ${selectedPostings.length} shipping labels.`);
+      }
+      if (warnings.length) headers['X-Document-Note'] = headerNote(warnings.slice(0, 12).join(' '));
       return new NextResponse(pdf, { headers });
     }
 

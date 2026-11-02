@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import TypeSelect from '../components/TypeSelect';
 import { useBatchScroll } from '../hooks/useBatchScroll';
 import ListPager from '../components/ListPager';
@@ -129,14 +129,9 @@ export default function DocumentPicker({ onMessage }) {
 
   function toggleAll() {
     setSelected((current) => {
-      const next = new Set(current);
-      const pageKeys = pageRows.map((row) => row.key);
-      const allOnPage = pageKeys.every((key) => next.has(key));
-      pageKeys.forEach((key) => {
-        if (allOnPage) next.delete(key);
-        else next.add(key);
-      });
-      return next;
+      const allKeys = products.map((row) => row.key);
+      const allSelected = allKeys.length > 0 && allKeys.every((key) => current.has(key));
+      return allSelected ? new Set() : new Set(allKeys);
     });
   }
 
@@ -158,7 +153,10 @@ export default function DocumentPicker({ onMessage }) {
         })),
         [...new Set(chosen.map((row) => row.postingNumber).filter(Boolean))],
       );
-      onMessage?.(message || (kind === 'shipping' ? 'Shipping labels downloaded from Ozon.' : 'Product list downloaded.'));
+      const postings = [...new Set(chosen.map((row) => row.postingNumber).filter(Boolean))];
+      onMessage?.(message || (kind === 'shipping'
+        ? `Downloaded ${postings.length} shipping labels.`
+        : `Downloaded product list with ${chosen.length} products.`));
     } catch (err) {
       onMessage?.(err.message, 'error');
     } finally {
@@ -174,7 +172,13 @@ export default function DocumentPicker({ onMessage }) {
     pageMode: true,
   });
   const pageRows = scroll.items;
-  const allChecked = pageRows.length > 0 && pageRows.every((row) => selected.has(row.key));
+  const allChecked = products.length > 0 && products.every((row) => selected.has(row.key));
+  const someChecked = selected.size > 0 && !allChecked;
+  const selectAllRef = useRef(null);
+
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someChecked;
+  }, [someChecked]);
 
   return (
     <section className="stat-card label-picker">
@@ -202,11 +206,16 @@ export default function DocumentPicker({ onMessage }) {
           {state === 'loading'
             ? 'Loading orders...'
             : `${products.length} product${products.length === 1 ? '' : 's'}${selected.size ? ` · ${selected.size} selected` : ''}`}
+          {products.length > 0 ? (
+            <button type="button" className="label-select-all" onClick={toggleAll}>
+              {allChecked ? 'Clear selection' : `Select all ${products.length}`}
+            </button>
+          ) : null}
           </p>
         </div>
         <div>
           <button type="button" className="dash-outline" disabled={!selected.size || Boolean(busy)} onClick={() => download('shipping')}>
-            {busy === 'shipping' ? 'Downloading labels...' : 'Download shipping labels'}
+            {busy === 'shipping' ? `Downloading ${selected.size} labels...` : 'Download shipping labels'}
           </button>
           <button type="button" className="dash-primary" disabled={!selected.size || Boolean(busy)} onClick={() => download('product')}>
             {busy === 'product' ? 'Downloading list...' : 'Download product list'}
@@ -264,7 +273,7 @@ export default function DocumentPicker({ onMessage }) {
         <table className="label-table">
           <thead>
             <tr>
-              <th><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select products on this page" /></th>
+              <th><input ref={selectAllRef} type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select all products" /></th>
               <th>Product</th>
               <th>SKU</th>
               <th>Quantity</th>
