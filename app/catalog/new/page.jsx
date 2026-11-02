@@ -1,7 +1,8 @@
-import Link from 'next/link';
 import { prisma } from '../../../lib/prisma';
 import { listCatalogRuns } from '../../../lib/catalog/listRuns';
 import NewRunForm from './NewRunForm';
+import FriendlyError from '../../components/FriendlyError';
+import { toPlain } from '../../../lib/toPlain';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,14 +25,10 @@ export default async function NewCatalogRunPage() {
         </p>
       </header>
       {accounts.length === 0 ? (
-        <section className="catalog-empty">
-          <h2>No seller accounts yet</h2>
-          <p>Add an account before starting a catalog run. The API key stays on the server.</p>
-          <Link className="dash-primary" href="/accounts">Go to Accounts</Link>
-        </section>
+        <FriendlyError kind="no-account" />
       ) : (
         <NewRunForm
-          accounts={accounts}
+          accounts={toPlain(accounts) || []}
           activeRun={active ? {
             runId: active.runId,
             accountId: active.accountId,

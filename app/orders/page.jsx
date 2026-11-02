@@ -1,6 +1,8 @@
 import { prisma } from '../../lib/prisma';
 import { listOrdersPage, orderStatusCounts, ORDER_PAGE_SIZE } from '../../lib/orders/listOrders';
 import OrdersClient from './OrdersClient';
+import FriendlyError from '../components/FriendlyError';
+import { toPlain } from '../../lib/toPlain';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,11 +28,16 @@ export default async function OrdersPage({ searchParams }) {
     }),
   ]);
 
+  const safeAccounts = toPlain(accounts) || [];
+  if (!safeAccounts.length) {
+    return <FriendlyError kind="no-account" />;
+  }
+
   return (
     <OrdersClient
-      orders={data.orders}
-      statusCounts={statusCounts}
-      accounts={accounts}
+      orders={toPlain(data.orders) || []}
+      statusCounts={toPlain(statusCounts) || {}}
+      accounts={safeAccounts}
       currentStatus={statusFilter}
       currentAccount={accountFilter}
       currentDate={dateFilter}

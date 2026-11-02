@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { prisma } from '../../../../lib/prisma';
 import { listCatalogRuns, readCatalogStatus } from '../../../../lib/catalog/listRuns';
 import RunLive from './RunLive';
+import { toPlain } from '../../../../lib/toPlain';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,7 +30,7 @@ export default async function CatalogRunPage({ params }) {
   return (
     <RunLive
       initial={run}
-      accounts={accounts}
+      accounts={toPlain(accounts) || []}
       otherActive={other ? { runId: other.runId, title: other.keyword || other.asin || 'Catalog run' } : null}
     />
   );
