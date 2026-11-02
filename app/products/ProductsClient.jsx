@@ -24,8 +24,10 @@ const FETCH_SIZE = 100;
 const UI_BATCH = 10;
 
 function parseJson(value, fallback) {
+  if (value == null || value === '') return fallback;
+  if (typeof value === 'object') return value;
   try {
-    return JSON.parse(value || '') ?? fallback;
+    return JSON.parse(value) ?? fallback;
   } catch {
     return fallback;
   }
@@ -198,22 +200,18 @@ function DetailDrawer({ product, onClose, onDelete }) {
 }
 
 export default function ProductsClient({
-  initialProducts,
-  initialTotal = 0,
-  initialHasMore = false,
-  initialCounts = {},
   initialTab = 'ALL',
   initialAccount = 'all',
   initialList = 'all',
   initialQuery = '',
   accounts = [],
 }) {
-  const [fetched, setFetched] = useState(initialProducts || []);
+  const [fetched, setFetched] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
-  const [total, setTotal] = useState(initialTotal);
-  const [hasMore, setHasMore] = useState(Boolean(initialHasMore) || (initialProducts || []).length < initialTotal);
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const [nextPage, setNextPage] = useState(2);
-  const [counts, setCounts] = useState(initialCounts);
+  const [counts, setCounts] = useState({});
   const [activeTab, setActiveTab] = useState(initialTab);
   const [filterAccount, setFilterAccount] = useState(initialAccount);
   const [listFilter, setListFilter] = useState(initialList);
@@ -221,9 +219,8 @@ export default function ProductsClient({
   const [selected, setSelected] = useState(null);
   const [selection, setSelection] = useState([]);
   const [showVariants, setShowVariants] = useState({});
-  const [loadingPage, setLoadingPage] = useState(false);
+  const [loadingPage, setLoadingPage] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const skipFirst = useRef(true);
   const loadingRef = useRef(false);
   const requestId = useRef(0);
   const tableWrapRef = useRef(null);
@@ -311,10 +308,6 @@ export default function ProductsClient({
   }
 
   useEffect(() => {
-    if (skipFirst.current) {
-      skipFirst.current = false;
-      return undefined;
-    }
     const timer = setTimeout(() => {
       setFetched([]);
       setCurrentPage(1);

@@ -2,8 +2,12 @@
 
 import { explainError } from '../../lib/friendlyError';
 
-export default function FriendlyError({ error, reset, kind = 'page' }) {
-  const help = explainError(error, kind);
+export default function FriendlyError({ error, reset, kind = 'page', message = '', digest = '' }) {
+  const packed = {
+    message: message || (typeof error === 'string' ? error : error?.message) || '',
+    digest: digest || (error?.digest ? String(error.digest) : ''),
+  };
+  const help = explainError(packed, kind);
 
   return (
     <section className="help-error" role="alert">

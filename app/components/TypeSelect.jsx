@@ -11,9 +11,9 @@ export default function TypeSelect({ label, value, options, onChange }) {
   const popRef = useRef(null);
   const inputRef = useRef(null);
   const listId = useId();
-  const selected = options.find((option) => option.id === value) || options[0];
+  const selected = (options || []).find((option) => option.id === value) || (options || [])[0];
   const query = text.trim().toLowerCase();
-  const matches = options.filter((option) => option.label.toLowerCase().includes(query));
+  const matches = (options || []).filter((option) => String(option.label || '').toLowerCase().includes(query));
 
   useEffect(() => {
     if (!open) return undefined;
