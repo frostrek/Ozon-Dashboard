@@ -34,6 +34,52 @@ async function saveCache(cache) {
 
 // ─── Cleaners ─────────────────────────────────────────────────────────────────
 
+export function cleanBrand(raw) {
+  if (!raw) return "";
+  let b = String(raw)
+    .replace(/[\u200e\u200f\u200b\u00ad\u202a-\u202e]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  let prev = "";
+  while (b !== prev) {
+    prev = b;
+    b = b.replace(/^Brand:\s*/i, "")
+         .replace(/^By\s+/i, "")
+         .replace(/^Visit the\s+/i, "")
+         .replace(/\s+(?:Official\s+)?(?:Storefront|Store)$/i, "")
+         .replace(/\s+Store$/i, "")
+         .replace(/\s*-\s*Amazon(?:\.in|\.com)?$/i, "")
+         .trim();
+  }
+
+  const stripTriggers = ["Pvt. Ltd", "Pvt Ltd", "Private Limited", "Inc.", "LLC", "M. Lic. No"];
+  for (const token of stripTriggers) {
+    const idx = b.toLowerCase().indexOf(token.toLowerCase());
+    if (idx !== -1) {
+      b = b.substring(0, idx).trim();
+    }
+  }
+
+  b = b.replace(/^[.,:;\-\s&|/]+|[.,:;\-\s&|/]+$/g, "").trim();
+
+  if (/^(?:no\s*brand|нет\s*бренда|net\s*brenda|generic|unbranded)$/i.test(b)) {
+    return "";
+  }
+
+  return b;
+}
+
+export function cleanAmazonTitle(raw) {
+  if (!raw) return "";
+  let t = String(raw).trim();
+  t = t.replace(/^Visit the\s+[\w\s&'-]+?\s+(?:Storefront|Store)\s*[-:–|]?\s*/i, "");
+  t = t.replace(/\bVisit the\s+[\w\s&'-]+?\s+(?:Storefront|Store)\b/gi, (match) => cleanBrand(match));
+  t = t.replace(/\bVisit the\s+(?:Storefront|Store)\b/gi, "");
+  t = t.replace(/\bVisit the\s+/gi, "");
+  return t.replace(/\s+/g, " ").trim();
+}
+
 function cleanForOzon(text) {
   if (!text) return "";
   let t = text
@@ -55,6 +101,13 @@ function cleanForOzon(text) {
 function strictTitleClean(title) {
   if (!title) return "";
   let t = title;
+
+  // Strip Amazon storefront noise like "Visit the X Store"
+  t = t.replace(/\bVisit the\s+[\w\s&'-]+?\s+(?:Storefront|Store)\b/gi, (match) => cleanBrand(match));
+  t = t.replace(/\bVisit the\s+(?:Storefront|Store)\b/gi, "");
+  t = t.replace(/\bVisit the\s+/gi, "");
+  t = t.replace(/\bBrand:\s*/gi, "");
+  t = t.replace(/\s+(?:Official\s+)?(?:Storefront|Store)\b/gi, "");
 
   // 0. ASIN / SKU / Barcode / Shipment-ID cleanup
   t = t.replace(/\bB0[A-Z0-9]{8}\b/g, "");                // Amazon ASIN (B0XXXXXXXX)
@@ -364,6 +417,15 @@ async function callAI(systemPrompt, userPrompt) {
 // Ozon-compliant Russian title/annotation purely from product data fields.
 
 const PRODUCT_TYPE_MAP = {
+  // Oral & Dental Care
+  "toothpaste": "Зубная паста", "tooth paste": "Зубная паста",
+  "toothbrush": "Зубная щетка", "tooth brush": "Зубная щетка",
+  "mouthwash": "Ополаскиватель для полости рта", "mouth wash": "Ополаскиватель для полости рта",
+  "dental": "Средство для гигиены полости рта", "oral care": "Средство для гигиены полости рта",
+  "floss": "Зубная нить", "whitening": "Отбеливающее средство",
+  "teeth": "Средство для зубов",
+
+  // Cosmetics & Skincare
   "lipstick": "Помада", "lip gloss": "Блеск для губ", "lip balm": "Бальзам для губ",
   "foundation": "Тональный крем", "concealer": "Консилер", "mascara": "Тушь",
   "shampoo": "Шампунь", "conditioner": "Кондиционер", "serum": "Сыворотка",
@@ -373,7 +435,11 @@ const PRODUCT_TYPE_MAP = {
   "sunscreen": "Солнцезащитный крем", "spf": "Солнцезащитный крем",
   "hair mask": "Маска для волос", "hair serum": "Сыворотка для волос",
   "face cream": "Крем для лица", "body lotion": "Лосьон для тела",
-  "body wash": "Гель для душа", "soap": "Мыло",
+  "body wash": "Гель для душа", "shower gel": "Гель для душа", "soap": "Мыло",
+  "deodorant": "Дезодорант", "antiperspirant": "Антиперспирант",
+  "hand wash": "Мыло для рук", "hand cream": "Крем для рук",
+
+  // Food & Grocery
   "spices": "Специи", "masala": "Масала", "spice": "Специя", "powder": "Порошок",
   "paste": "Паста", "sauce": "Соус", "pickle": "Маринад", "honey": "Мед",
   "face scrub": "Скраб для лица", "body scrub": "Скраб для тела",
@@ -384,23 +450,38 @@ const PRODUCT_TYPE_MAP = {
 
 function buildTemplateFallback(product) {
   const name = (product.name || "").toLowerCase();
-  const brand = String(product.brand || "").trim();
+  const brand = cleanBrand(product.brand);
 
-  // Detect product type from name
-  let productType = "Косметическое средство";
+  // Detect product type from name or category
+  let productType = "";
   for (const [en, ru] of Object.entries(PRODUCT_TYPE_MAP)) {
     if (name.includes(en)) { productType = ru; break; }
+  }
+  if (!productType && product.product_category) {
+    const catLower = String(product.product_category).toLowerCase();
+    for (const [en, ru] of Object.entries(PRODUCT_TYPE_MAP)) {
+      if (catLower.includes(en)) { productType = ru; break; }
+    }
+  }
+  if (!productType) {
+    productType = "Косметическое средство";
   }
 
   // Get size. Keep the brand in Latin and the rest in Russian so the title stays mostly Cyrillic.
   const sizeMatch = (product.name || "").match(/(\d+)\s*(ml|мл|g|г|oz)/i);
   const size = sizeMatch ? `${sizeMatch[1]} ${sizeMatch[2].toLowerCase().replace('g','г').replace('ml','мл')}` : "";
 
-  const title = `${productType} ${brand}${size ? `, ${size}` : ""}, для ежедневного ухода`;
-
+  const titleParts = [productType];
+  if (brand) titleParts.push(brand);
+  let title = titleParts.join(" ");
+  if (size) title += `, ${size}`;
+  title += ", для ежедневного ухода";
+  title = title.replace(/\s+/g, " ").trim();
 
   // Build annotation
-  const annotation = `${brand} предлагает ${productType.toLowerCase()} на основе натуральных компонентов. Подходит для регулярного использования.`;
+  const annotation = brand
+    ? `${brand} предлагает ${productType.toLowerCase()} на основе качественных компонентов. Подходит для регулярного использования.`
+    : `Качественное ${productType.toLowerCase()} для регулярного использования.`;
 
   return { title: title.slice(0, 150), annotation: annotation.slice(0, 600) };
 }
@@ -509,7 +590,8 @@ ${typeLabel ? `  11. CATEGORY LOCK: You MUST use the exact product category term
 
   RETURN ONLY the final title string. Nothing else.`;
 
-  const userPrompt = `ORIGINAL AMAZON TITLE: ${product.name}
+  const cleanProdName = cleanAmazonTitle(product.name);
+  const userPrompt = `ORIGINAL AMAZON TITLE: ${cleanProdName}
 ADDITIONAL CONTEXT (ONLY use this if the title is too vague):
 SIZE: ${product.net_quantity || product.weight_grams + 'g' || 'N/A'}`;
 
@@ -534,18 +616,13 @@ SIZE: ${product.net_quantity || product.weight_grams + 'g' || 'N/A'}`;
   }
 
   // --- SMART TITLE ASSEMBLY ---
-  // Clean the brand from Amazon store prefix (e.g. "Visit the JAWAI Store" -> "JAWAI")
-  let brandName = String(product.brand || "").trim();
-  const visitMatch = brandName.match(/^Visit the (.+?) Store$/i);
-  if (visitMatch) brandName = visitMatch[1].trim();
-  const brandPrefixMatch = brandName.match(/^Brand:\s*(.+)$/i);
-  if (brandPrefixMatch) brandName = brandPrefixMatch[1].trim();
-  brandName = brandName.replace(/\s+Official Store$/i, '').trim();
+  // Clean the brand from Amazon store prefix (e.g. "Visit the Colgate Store" -> "Colgate")
+  let brandName = cleanBrand(product.brand);
 
   let title = aiContent;
 
   // STRICT RULE: Never inject "Нет бренда" into the title
-  const isNoBrand = brandName.toLowerCase() === 'net brenda' || brandName.toLowerCase() === 'нет бренда' || brandName.toLowerCase() === 'no brand';
+  const isNoBrand = !brandName || brandName.toLowerCase() === 'net brenda' || brandName.toLowerCase() === 'нет бренда' || brandName.toLowerCase() === 'no brand';
 
   // Insert brand after first word (the Type) if AI didn't include it
   if (!isNoBrand && brandName && !title.toLowerCase().includes(brandName.toLowerCase())) {
@@ -605,6 +682,11 @@ SIZE: ${product.net_quantity || product.weight_grams + 'g' || 'N/A'}`;
   // ─── SEO KEYWORD ENFORCEMENT ────────────────────────────────────────────────
   // Detect the primary Russian category keyword and ensure it appears early in the title.
   const RU_KEYWORD_MAP = {
+    "toothpaste"      : "Зубная паста",
+    "tooth paste"     : "Зубная паста",
+    "toothbrush"      : "Зубная щетка",
+    "tooth brush"     : "Зубная щетка",
+    "mouthwash"       : "Ополаскиватель для полости рта",
     "hair oil"        : "Масло для волос",
     "shampoo"         : "Шампунь",
     "conditioner"     : "Кондиционер",

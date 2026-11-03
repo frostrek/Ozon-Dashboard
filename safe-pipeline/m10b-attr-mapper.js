@@ -89,15 +89,38 @@ export function sanitizeProhibitedWords(text) {
 
 // ─── Unified Brand Cleaner ──────────────────────────────────────────────────
 function cleanBrandText(text) {
-  let b = String(text || "").trim();
-  // Strip common Amazon prefixes
-  const visitMatch = b.match(/^Visit the (.+?) Store$/i);
-  if (visitMatch) b = visitMatch[1].trim();
-  const brandMatch = b.match(/^Brand:\s*(.+)$/i);
-  if (brandMatch) b = brandMatch[1].trim();
-  // Strip "Official Store" and punctuation
-  b = b.replace(/\s+Official Store$/i, '').trim();
-  // Normalize punctuation/symbols but keep '&', '-', and apostrophes common in brands
+  if (!text) return "";
+  let b = String(text)
+    .replace(/[\u200e\u200f\u200b\u00ad\u202a-\u202e]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  let prev = "";
+  while (b !== prev) {
+    prev = b;
+    b = b.replace(/^Brand:\s*/i, "")
+         .replace(/^By\s+/i, "")
+         .replace(/^Visit the\s+/i, "")
+         .replace(/\s+(?:Official\s+)?(?:Storefront|Store)$/i, "")
+         .replace(/\s+Store$/i, "")
+         .replace(/\s*-\s*Amazon(?:\.in|\.com)?$/i, "")
+         .trim();
+  }
+
+  const stripTriggers = ["Pvt. Ltd", "Pvt Ltd", "Private Limited", "Inc.", "LLC", "M. Lic. No"];
+  for (const token of stripTriggers) {
+    const idx = b.toLowerCase().indexOf(token.toLowerCase());
+    if (idx !== -1) {
+      b = b.substring(0, idx).trim();
+    }
+  }
+
+  b = b.replace(/^[.,:;\-\s&|/]+|[.,:;\-\s&|/]+$/g, "").trim();
+
+  if (/^(?:no\s*brand|нет\s*бренда|net\s*brenda|generic|unbranded)$/i.test(b)) {
+    return "";
+  }
+
   return b.replace(/[^\p{L}\p{N}\s&'-]/gu, '').replace(/\s+/g, ' ').trim();
 }
 

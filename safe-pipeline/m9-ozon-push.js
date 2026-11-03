@@ -266,14 +266,40 @@ async function rehostImage(asin, idx, url) {
 
 
 // ─── Brand Name Cleaner ──────────────────────────────────────────────────────
-const cleanBrand = (text) => {
-  let b = String(text || "").trim();
-  const visitMatch = b.match(/^Visit the (.+?) Store$/i);
-  if (visitMatch) b = visitMatch[1].trim();
-  const brandMatch = b.match(/^Brand:\s*(.+)$/i);
-  if (brandMatch) b = brandMatch[1].trim();
-  b = b.replace(/\s+Official Store$/i, '').trim();
-  return b.replace(/[^\p{L}\p{N}\s&'-]/gu, '').replace(/\s+/g, ' ').trim();
+export const cleanBrand = (text) => {
+  if (!text) return "";
+  let b = String(text)
+    .replace(/[\u200e\u200f\u200b\u00ad\u202a-\u202e]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  let prev = "";
+  while (b !== prev) {
+    prev = b;
+    b = b.replace(/^Brand:\s*/i, "")
+         .replace(/^By\s+/i, "")
+         .replace(/^Visit the\s+/i, "")
+         .replace(/\s+(?:Official\s+)?(?:Storefront|Store)$/i, "")
+         .replace(/\s+Store$/i, "")
+         .replace(/\s*-\s*Amazon(?:\.in|\.com)?$/i, "")
+         .trim();
+  }
+
+  const stripTriggers = ["Pvt. Ltd", "Pvt Ltd", "Private Limited", "Inc.", "LLC", "M. Lic. No"];
+  for (const token of stripTriggers) {
+    const idx = b.toLowerCase().indexOf(token.toLowerCase());
+    if (idx !== -1) {
+      b = b.substring(0, idx).trim();
+    }
+  }
+
+  b = b.replace(/^[.,:;\-\s&|/]+|[.,:;\-\s&|/]+$/g, "").trim();
+
+  if (/^(?:no\s*brand|нет\s*бренда|net\s*brenda|generic|unbranded)$/i.test(b)) {
+    return "";
+  }
+
+  return b;
 };
 
 const normalizeBrand = (text) => {
@@ -304,6 +330,16 @@ async function resolveBrand(brandName, catId, typeId) {
   // Keys MUST be fully normalized: lowercase, no spaces, no punctuation, no accents.
   // When Amazon gives us a known brand, we ALWAYS use the Ozon entry — never Нет бренда.
   const GLOBAL_BRAND_MAP = {
+    // ── Oral Care ──────────────────────────────────────────────────────────
+    "colgate":                { id: 5120698,   value: "Colgate" },
+    "sensodyne":              { id: 5122452,   value: "Sensodyne" },
+    "oralb":                  { id: 5122176,   value: "Oral-B" },
+    "closeup":                { id: 5120696,   value: "Close-Up" },
+    "pepsodent":              { id: 5122240,   value: "Pepsodent" },
+    "dettol":                 { id: 5120739,   value: "Dettol" },
+    "lifebuoy":               { id: 5122002,   value: "Lifebuoy" },
+    "lux":                    { id: 5122037,   value: "Lux" },
+    "pears":                  { id: 5122237,   value: "Pears" },
     // ── Cosmetics / Personal Care ──────────────────────────────────────────
     "lakme":                  { id: 81898125,  value: "Lakme" },
     "maybelline":             { id: 5120693,   value: "Maybelline New York" },
@@ -620,7 +656,7 @@ export async function pushProductToOzon(p, inrUsdRate, options) {
   // If Ozon doesn't have the brand, we map it to "Нет бренда" under the hood (id 85),
   // BUT we must keep the original Amazon brand visible in title, description, and hashtags.
   const isNoBrand = brand.value === "Нет бренда" || !brand.value;
-  const brandForTextChecks = isNoBrand && p.brand ? p.brand : brand.value;
+  const brandForTextChecks = cleanBrand(isNoBrand && p.brand ? p.brand : brand.value) || brand.value || "Нет бренда";
 
   // 3. Image Re-hosting (Mandatory Hardening)
   const imagesToProcess = Array.isArray(p.image_urls) ? p.image_urls.slice(0, 10) : [];
@@ -1098,10 +1134,17 @@ export async function pushProductToOzon(p, inrUsdRate, options) {
 
   // ─── Shared helpers for variant creation ───────────────────────────────────
   const insertPackIntoTitle = (title, packText) => {
-    if (title.includes(',')) {
-      return title.replace(/,\s*([^,]+)$/, `, ${packText}, $1`);
+    let t = String(title || "")
+      .replace(/\bVisit the\s+[\w\s&'-]+?\s+(?:Storefront|Store)\b/gi, (match) => cleanBrand(match))
+      .replace(/\bVisit the\s+(?:Storefront|Store)\b/gi, "")
+      .replace(/\bVisit the\s+/gi, "")
+      .replace(/\bBrand:\s*/gi, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (t.includes(',')) {
+      return t.replace(/,\s*([^,]+)$/, `, ${packText}, $1`);
     }
-    return `${title}, ${packText}`;
+    return `${t}, ${packText}`;
   };
 
   const updateVariantAttributes = (baseAttrs, sku, quantity) => {

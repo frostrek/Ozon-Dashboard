@@ -8,6 +8,7 @@ node_modules/
 *.db-shm
 translate-cache.json
 m1-m3-output.json
+m1-m3-output-*.json
 ozon-push-payload.json
 brand-cache-*.json
 ozon-attrs-cache.json

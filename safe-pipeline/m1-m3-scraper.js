@@ -391,35 +391,64 @@ function matchesType(title, filter) {
 
 // ─── Data merger ──────────────────────────────────────────────────────────────
 
+export function cleanBrand(raw) {
+  if (!raw) return "";
+  let b = String(raw)
+    .replace(/[\u200e\u200f\u200b\u00ad\u202a-\u202e]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  let prev = "";
+  while (b !== prev) {
+    prev = b;
+    b = b.replace(/^Brand:\s*/i, "")
+         .replace(/^By\s+/i, "")
+         .replace(/^Visit the\s+/i, "")
+         .replace(/\s+(?:Official\s+)?(?:Storefront|Store)$/i, "")
+         .replace(/\s+Store$/i, "")
+         .replace(/\s*-\s*Amazon(?:\.in|\.com)?$/i, "")
+         .trim();
+  }
+
+  const stripTriggers = ["Pvt. Ltd", "Pvt Ltd", "Private Limited", "Inc.", "LLC", "M. Lic. No"];
+  for (const token of stripTriggers) {
+    const idx = b.toLowerCase().indexOf(token.toLowerCase());
+    if (idx !== -1) {
+      b = b.substring(0, idx).trim();
+    }
+  }
+
+  b = b.replace(/^[.,:;\-\s&|/]+|[.,:;\-\s&|/]+$/g, "").trim();
+
+  if (/^(?:no\s*brand|нет\s*бренда|net\s*brenda|generic|unbranded)$/i.test(b)) {
+    return "";
+  }
+
+  return b;
+}
+
 function normalizeBrand(str) {
   if (!str) return str;
-  let lower = str.toLowerCase();
+  const cleaned = cleanBrand(str);
+  if (!cleaned) return "";
+  let lower = cleaned.toLowerCase();
   
   // Hardcoded known brands
   if (lower.includes("tata sampann")) return "Tata Sampann";
   if (lower.includes("vedaka")) return "Vedaka";
+  if (lower.includes("colgate")) return "Colgate";
   if (lower.includes("l'oréal") || lower.includes("l’oréal") || lower.includes("loreal") || lower.includes("l`oreal")) {
       if (lower.includes("professionnel")) return "L'Oréal Professionnel";
       return "L'Oreal Paris";
   }
 
-  // Generic cleanup: Remove hidden characters and common address/company tags
-  let clean = str.replace(/[\u200e\u200f\u202a-\u202e]/g, "").trim();
-  const stripTriggers = ["Pvt. Ltd", "Pvt Ltd", "Private Limited", "Inc.", "LLC", "M. Lic. No", ","];
-  
-  for (const token of stripTriggers) {
-      const idx = clean.toLowerCase().indexOf(token.toLowerCase());
-      if (idx !== -1) {
-          clean = clean.substring(0, Math.max(0, idx)).trim();
-      }
-  }
-
+  let clean = cleaned;
   // If it's dangerously long (likely an address fallback), chop it aggressively
   if (clean.length > 35) {
       clean = clean.split(" ").slice(0, 2).join(" ").trim();
   }
 
-  return clean || str;
+  return clean || cleaned;
 }
 
 function isHttpUrl(value) {
@@ -461,6 +490,15 @@ export function collectImageUrls(...sources) {
   return urls;
 }
 
+function cleanAmazonTitle(raw) {
+  if (!raw) return "";
+  let t = String(raw).trim();
+  t = t.replace(/^Visit the\s+[\w\s&'-]+?\s+(?:Storefront|Store)\s*[-:–|]?\s*/i, "");
+  t = t.replace(/\bVisit the\s+[\w\s&'-]+?\s+(?:Storefront|Store)\b/gi, "");
+  t = t.replace(/\bVisit the\s+(?:Storefront|Store)\b/gi, "");
+  return t.replace(/\s+/g, " ").trim();
+}
+
 function mergeProduct(searchItem, detail, keyword = null) {
   if (!detail || typeof detail !== "object") {
     console.warn(`  ⚠️  Skipping ${searchItem?.asin || 'Unknown'}: invalid detail data`);
@@ -475,7 +513,7 @@ function mergeProduct(searchItem, detail, keyword = null) {
   return {
     asin: searchItem.asin,
     amazon_url: `https://www.amazon.in/dp/${searchItem.asin}`,
-    name: detail.name ?? searchItem.name,
+    name: cleanAmazonTitle(detail.name ?? searchItem.name),
     feature_bullets: detail.feature_bullets ?? [],
     product_category: detail.product_category ?? null,
     price_inr: searchItem.price ?? null,

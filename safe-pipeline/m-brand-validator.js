@@ -92,17 +92,65 @@ export function detectOtherBrand(text, ownBrand) {
   return { found: false, culprit: null };
 }
 
+export function cleanBrand(raw) {
+  if (!raw) return "";
+  let b = String(raw)
+    .replace(/[\u200e\u200f\u200b\u00ad\u202a-\u202e]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  let prev = "";
+  while (b !== prev) {
+    prev = b;
+    b = b.replace(/^Brand:\s*/i, "")
+         .replace(/^By\s+/i, "")
+         .replace(/^Visit the\s+/i, "")
+         .replace(/\s+(?:Official\s+)?(?:Storefront|Store)$/i, "")
+         .replace(/\s+Store$/i, "")
+         .replace(/\s*-\s*Amazon(?:\.in|\.com)?$/i, "")
+         .trim();
+  }
+
+  const stripTriggers = ["Pvt. Ltd", "Pvt Ltd", "Private Limited", "Inc.", "LLC", "M. Lic. No"];
+  for (const token of stripTriggers) {
+    const idx = b.toLowerCase().indexOf(token.toLowerCase());
+    if (idx !== -1) {
+      b = b.substring(0, idx).trim();
+    }
+  }
+
+  b = b.replace(/^[.,:;\-\s&|/]+|[.,:;\-\s&|/]+$/g, "").trim();
+
+  if (/^(?:no\s*brand|нет\s*бренда|net\s*brenda|generic|unbranded)$/i.test(b)) {
+    return "";
+  }
+
+  return b;
+}
+
+function cleanStoreFromText(text) {
+  if (!text) return "";
+  let t = String(text);
+  t = t.replace(/\bVisit the\s+[\w\s&'-]+?\s+(?:Storefront|Store)\b/gi, (match) => cleanBrand(match));
+  t = t.replace(/\bVisit the\s+(?:Storefront|Store)\b/gi, "");
+  t = t.replace(/\bVisit the\s+/gi, "");
+  t = t.replace(/\bBrand:\s*/gi, "");
+  t = t.replace(/\s+(?:Official\s+)?(?:Storefront|Store)\b/gi, "");
+  return t.replace(/\s+/g, " ").trim();
+}
+
 /**
  * Ensure the text contains ownBrand at the start.
  * If missing, prepend it.
  */
 export function ensureBrandPresent(text, ownBrand) {
-  if (!text || !ownBrand) return { text, changed: false };
+  const cleanedBrand = cleanBrand(ownBrand);
+  if (!text || !cleanedBrand) return { text, changed: false };
   const collapseFull = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   
   const lowerText = collapseFull(text);
-  const fullBrandMatch = collapseFull(ownBrand);
-  const compactBrandMatch = collapseKey(ownBrand);
+  const fullBrandMatch = collapseFull(cleanedBrand);
+  const compactBrandMatch = collapseKey(cleanedBrand);
   
   // Extract the primary first word, e.g. "Maybelline" out of "Maybelline New York"
   const firstWordMatch = fullBrandMatch.split(/\s+/).filter(w => w.length >= 4)[0];
@@ -110,12 +158,9 @@ export function ensureBrandPresent(text, ownBrand) {
   if (lowerText.includes(fullBrandMatch) || 
       lowerText.includes(compactBrandMatch) || 
       (firstWordMatch && lowerText.includes(firstWordMatch))) {
-    
-    // It's already there! But let's avoid "Maybelline New York Maybelline" if we were to prepend.
-    // Actually, just return unchanged.
     return { text, changed: false };
   }
-  return { text: `${ownBrand} ${text}`, changed: true };
+  return { text: `${cleanedBrand} ${text}`, changed: true };
 }
 
 // ── Brand validity gate ───────────────────────────────────────────────────────
@@ -123,7 +168,7 @@ export function ensureBrandPresent(text, ownBrand) {
 /** Returns true only if brandValue is a legitimate, non-fragment brand name */
 export function isValidBrandValue(value) {
   if (!value || typeof value !== "string") return false;
-  const v = value.trim();
+  const v = cleanBrand(value);
   if (v.length < 3) return false;
   if (/^[A-Z]{1,4}$/.test(v)) return false;           // ALL-CAPS initials: S, SH, GAR, FARA
   if (/^[A-Za-z]{1,2}$/.test(v)) return false;        // 1-2 letter fragments
@@ -142,22 +187,28 @@ export function isValidBrandValue(value) {
  */
 export function validateAndCorrectBrand(ai, ownBrand) {
   const corrections = [];
+  const cleanedBrand = cleanBrand(ownBrand);
 
   // ── 1. Title ──────────────────────────────────────────────────────────────
   {
-    const { found, culprit } = detectOtherBrand(ai.title_ru, ownBrand);
+    let cleanedTitle = cleanStoreFromText(ai.title_ru);
+    if (cleanedTitle !== ai.title_ru) {
+      corrections.push("TITLE stripped Amazon store prefix");
+      ai = { ...ai, title_ru: cleanedTitle };
+    }
+    const { found, culprit } = detectOtherBrand(ai.title_ru, cleanedBrand);
     if (found) corrections.push(`TITLE contains foreign brand "${culprit}" — prepended own brand`);
-    const { text, changed } = ensureBrandPresent(ai.title_ru, ownBrand);
-    if (changed) { corrections.push(`TITLE missing brand "${ownBrand}" — prepended`); ai = { ...ai, title_ru: text }; }
+    const { text, changed } = ensureBrandPresent(ai.title_ru, cleanedBrand);
+    if (changed) { corrections.push(`TITLE missing brand "${cleanedBrand}" — prepended`); ai = { ...ai, title_ru: text }; }
   }
 
   // ── 2. Description ────────────────────────────────────────────────────────
   {
-    const descText = ai.description_ru || ai.annotation_ru || "";
-    const { found, culprit } = detectOtherBrand(descText, ownBrand);
+    let descText = cleanStoreFromText(ai.description_ru || ai.annotation_ru || "");
+    const { found, culprit } = detectOtherBrand(descText, cleanedBrand);
     if (found) corrections.push(`DESCRIPTION contains foreign brand "${culprit}"`);
-    const { text, changed } = ensureBrandPresent(descText, ownBrand);
-    if (changed) corrections.push(`DESCRIPTION missing brand "${ownBrand}" — prepended`);
+    const { text, changed } = ensureBrandPresent(descText, cleanedBrand);
+    if (changed) corrections.push(`DESCRIPTION missing brand "${cleanedBrand}" — prepended`);
     ai = { ...ai, description_ru: text, annotation_ru: text };
   }
 
