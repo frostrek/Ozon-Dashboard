@@ -7023,3 +7023,17 @@ button.button-secondary:hover {
   gap: 10px;
   align-items: center;
 }
+
+
+/* Product Variants Styling */
+.prod-variant {
+  background: #F8FAFC !important;
+}
+
+.prod-variant:hover {
+  background: #F1F5F9 !important;
+}
+
+.prod-variant td:nth-child(2) {
+  border-left: 3px solid #0284C7;
+}

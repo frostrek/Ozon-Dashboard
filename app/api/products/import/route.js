@@ -49,21 +49,62 @@ async function createDraft(body) {
     throw error;
   }
 
+  // Handle parent product & variant linking
+  let parentProduct = null;
+  let variantGroupId = body.variantGroupId ? String(body.variantGroupId).trim() : null;
+  let isVariant = Boolean(body.isVariant || body.parentProductId || variantGroupId);
+
+  if (body.parentProductId) {
+    parentProduct = await prisma.product.findUnique({ where: { id: String(body.parentProductId) } });
+    if (parentProduct) {
+      isVariant = true;
+      if (!variantGroupId) {
+        variantGroupId = parentProduct.variant_group_id || `vg_${parentProduct.id}`;
+      }
+      // Ensure the parent product is also marked with this variant_group_id
+      if (parentProduct.variant_group_id !== variantGroupId) {
+        await prisma.product.update({
+          where: { id: parentProduct.id },
+          data: {
+            variant_group_id: variantGroupId,
+            is_variant: true,
+          },
+        });
+      }
+    }
+  }
+
+  const modelName = String(body.modelName || (parentProduct ? parentProduct.name : '') || '').trim();
+  const modelGroupName = String(body.modelGroupName || modelName || (parentProduct ? (parentProduct.variant_group_id || parentProduct.name) : '') || '').trim();
+
+  if (!variantGroupId && modelGroupName) {
+    const slug = modelGroupName.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40);
+    variantGroupId = `vg_${slug}`;
+    isVariant = true;
+  }
+
+  const parentAttrs = parentProduct ? (tryParse(parentProduct.attributes_json) || {}) : {};
+  const categoryId = body.categoryId || parentAttrs.description_category_id || '';
+  const typeId = body.typeId || parentAttrs.type_id || '';
+  const brand = String(body.brand || parentProduct?.brand || '').trim();
+  const vat = body.vat != null && body.vat !== '' ? body.vat : (parentAttrs.vat != null ? parentAttrs.vat : '');
+
   const images = String(body.images || '').split(/\s+/).map((item) => item.trim()).filter(Boolean);
   const draft = {
     sku: String(body.sku || '').trim(),
     name: String(body.name || '').trim(),
-    brand: String(body.brand || '').trim(),
+    brand: brand || null,
     price: body.price === '' || body.price == null ? null : Number(body.price),
     old_price: body.oldPrice === '' || body.oldPrice == null ? null : Number(body.oldPrice),
     currency: String(body.currency || '').trim() || 'RUB',
+    variant_group_id: variantGroupId || null,
     images_json: JSON.stringify(images),
     attributes_json: JSON.stringify({
-      description: String(body.description || '').trim(),
-      description_attribute_id: body.descriptionAttributeId || '',
-      description_category_id: body.categoryId,
-      type_id: body.typeId,
-      vat: body.vat,
+      description: String(body.description || parentAttrs.description || '').trim(),
+      description_attribute_id: body.descriptionAttributeId || parentAttrs.description_attribute_id || '',
+      description_category_id: categoryId,
+      type_id: typeId,
+      vat,
       weight: body.weight,
       depth: body.depth,
       width: body.width,
@@ -74,6 +115,10 @@ async function createDraft(body) {
       color: String(body.color || '').trim(),
       size: String(body.size || '').trim(),
       material: String(body.material || '').trim(),
+      model_name: modelName || undefined,
+      model_group_name: modelGroupName || undefined,
+      variant_group_id: variantGroupId || undefined,
+      variant_value: body.variantValue ? String(body.variantValue).trim() : undefined,
     }),
   };
   mapProductToOzonItem(draft);
@@ -90,9 +135,20 @@ async function createDraft(body) {
       currency: draft.currency,
       status: 'PENDING',
       status_name: 'Not sent yet',
+      variant_group_id: variantGroupId || null,
+      is_variant: isVariant,
       images_json: draft.images_json,
       attributes_json: draft.attributes_json,
     },
     include: { account: true },
   });
+}
+
+function tryParse(value) {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 }

@@ -71,6 +71,37 @@ function statusTone(product) {
   return 'muted';
 }
 
+function extractBaseProductName(name) {
+  if (!name || typeof name !== 'string') return '';
+  let clean = name.trim();
+  // Strip trailing weight/volume e.g. " 250 g", " 100g", " 250ml", " 100 ml", " 1 kg", " 500 gm", etc.
+  clean = clean.replace(/[,–-]?\s*\b\d+(?:\.\d+)?\s*(?:g|gm|gms|grams?|kg|kgs?|ml|l|ltr|litres?|oz|fl\s*oz)\b.*$/i, '');
+  // Strip trailing pack counts e.g. " Pack of 2", " 2 pcs", " (Pack of 3)"
+  clean = clean.replace(/[,–-]?\s*\(?\b(?:pack\s*of\s*\d+|\d+\s*pcs?|\d+\s*pieces?|\d+\s*pack)\b\)?.*$/i, '');
+  // Strip trailing sizes e.g. ", Size M", " - Size XL"
+  clean = clean.replace(/[,–-]?\s*\b(?:size\s*[:\s]*[a-z0-9]+)\b.*$/i, '');
+  // Strip trailing punctuation
+  clean = clean.replace(/[,–\-:/\\|\s]+$/, '').trim();
+  return clean || name.trim();
+}
+
+function getProductGroupKey(product) {
+  if (product.variant_group_id) {
+    return `vg_${product.account_id}_${product.variant_group_id}`;
+  }
+  const attrs = parseJson(product.attributes_json, {});
+  const attrGroupId = attrs?.variant_group_id || attrs?.model_group_name || attrs?.model_id;
+  if (attrGroupId) {
+    return `attr_vg_${product.account_id}_${attrGroupId}`;
+  }
+  const baseName = extractBaseProductName(product.name);
+  const brand = (product.brand || '').toLowerCase().trim();
+  if (baseName && baseName.length >= 3) {
+    return `auto_${product.account_id}_${brand}_${baseName.toLowerCase()}`;
+  }
+  return `none_${product.id}`;
+}
+
 function ActionIcon({ name }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -90,7 +121,7 @@ function ProductImage({ product }) {
   return <img className="prod-photo" src={src} alt="" onError={() => setFailed(true)} />;
 }
 
-function DetailDrawer({ product, onClose, onDelete }) {
+function DetailDrawer({ product, onClose, onDelete, onAddVariant }) {
   const [drawerTab, setDrawerTab] = useState('INFO');
   const [isSyncing, setIsSyncing] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
@@ -165,6 +196,14 @@ function DetailDrawer({ product, onClose, onDelete }) {
                 <button type="button" className="dash-outline" onClick={handleSync} disabled={isSyncing || isPushing}>
                   {isSyncing ? 'Starting...' : 'Sync from Ozon'}
                 </button>
+                <button
+                  type="button"
+                  className="dash-outline"
+                  onClick={() => onAddVariant && onAddVariant(product)}
+                  title="Add another weight or size variant to this product"
+                >
+                  + Add Variant
+                </button>
                 <button type="button" className="prod-delete" onClick={() => onDelete(product)}>Delete</button>
               </div>
               {syncMessage && <p className="notice notice-warn">{syncMessage}</p>}
@@ -188,6 +227,7 @@ function DetailDrawer({ product, onClose, onDelete }) {
                 <div><dt>Created</dt><dd>{fmtDate(product.ozon_created_at)}</dd></div>
                 <div><dt>Barcode</dt><dd>{barcodeOf(product) || '—'}</dd></div>
                 <div><dt>Category ID</dt><dd>{attrs.description_category_id || '—'}</dd></div>
+                <div><dt>Model Group</dt><dd>{product.variant_group_id || attrs.model_group_name || '—'}</dd></div>
               </dl>
             </>
           ) : (
@@ -209,9 +249,9 @@ export default function ProductsClient({
   const [fetched, setFetched] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
-  const [nextPage, setNextPage] = useState(2);
   const [counts, setCounts] = useState({});
+  const [nextPage, setNextPage] = useState(2);
+  const [hasMore, setHasMore] = useState(true);
   const [activeTab, setActiveTab] = useState(initialTab);
   const [filterAccount, setFilterAccount] = useState(initialAccount);
   const [listFilter, setListFilter] = useState(initialList);
@@ -219,6 +259,7 @@ export default function ProductsClient({
   const [selected, setSelected] = useState(null);
   const [selection, setSelection] = useState([]);
   const [showVariants, setShowVariants] = useState({});
+  const [variantParent, setVariantParent] = useState(null);
   const [loadingPage, setLoadingPage] = useState(true);
   const [loadError, setLoadError] = useState('');
   const loadingRef = useRef(false);
@@ -237,15 +278,22 @@ export default function ProductsClient({
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState('');
 
-  latestRef.current = { fetched, total, hasMore, nextPage, activeTab, filterAccount, listFilter, search };
+  latestRef.current = {
+    fetched,
+    total,
+    nextPage,
+    hasMore,
+    activeTab,
+    filterAccount,
+    listFilter,
+    search,
+  };
 
-  async function ensureLoadedThrough(needCount) {
-    const target = Math.min(needCount, latestRef.current.total || needCount);
+  async function ensureLoadedThrough(targetCount) {
     let guard = 0;
-    while (latestRef.current.fetched.length < target && latestRef.current.fetched.length < latestRef.current.total && guard < 40) {
+    while (latestRef.current.fetched.length < targetCount && latestRef.current.hasMore && guard < 10) {
       if (loadingRef.current) {
         await new Promise((resolve) => setTimeout(resolve, 80));
-        guard += 1;
         continue;
       }
       const batch = await fetchBatch(latestRef.current.nextPage, false);
@@ -273,10 +321,10 @@ export default function ProductsClient({
       const params = new URLSearchParams({
         page: String(page),
         pageSize: String(FETCH_SIZE),
-        tab: latestRef.current.activeTab,
-        account: latestRef.current.filterAccount,
-        list: latestRef.current.listFilter,
-        q: String(latestRef.current.search || '').trim(),
+        tab: activeTab === 'ALL' ? '' : activeTab,
+        account: filterAccount === 'all' ? '' : filterAccount,
+        list: listFilter === 'all' ? '' : listFilter,
+        q: search,
       });
       const response = await fetch(`/api/products?${params}`, { cache: 'no-store' });
       const data = await response.json().catch(() => ({}));
@@ -325,19 +373,11 @@ export default function ProductsClient({
     return () => clearTimeout(timer);
   }, [activeTab, filterAccount, listFilter, search]);
 
-  const pageCount = Math.max(1, Math.ceil(total / UI_BATCH));
-  const safePage = Math.min(currentPage, pageCount);
-  const rangeStart = total === 0 ? 0 : ((safePage - 1) * UI_BATCH) + 1;
-  const rangeEnd = Math.min(safePage * UI_BATCH, total);
-  const products = useMemo(() => {
-    const start = (safePage - 1) * UI_BATCH;
-    return fetched.slice(start, start + UI_BATCH);
-  }, [fetched, safePage]);
-
-  const variantGroups = useMemo(() => {
+  // Group all loaded products by variant / model key
+  const allVariantGroups = useMemo(() => {
     const groups = {};
-    products.forEach((product) => {
-      const key = product.variant_group_id || `none_${product.id}`;
+    fetched.forEach((product) => {
+      const key = getProductGroupKey(product);
       if (!groups[key]) groups[key] = [];
       groups[key].push(product);
     });
@@ -345,11 +385,20 @@ export default function ProductsClient({
       const latest = (group) => Math.max(0, ...group.map((product) => new Date(product.ozon_created_at || product.created_at || 0).getTime() || 0));
       return latest(right[1]) - latest(left[1]);
     });
-    return Object.fromEntries(ranked);
-  }, [products]);
+    return ranked;
+  }, [fetched]);
 
-  const groupEntries = Object.entries(variantGroups);
-  const pageGroups = groupEntries;
+  const totalGroups = allVariantGroups.length;
+  const pageCount = Math.max(1, Math.ceil(totalGroups / UI_BATCH));
+  const safePage = Math.min(currentPage, pageCount);
+  const rangeStart = totalGroups === 0 ? 0 : ((safePage - 1) * UI_BATCH) + 1;
+  const rangeEnd = Math.min(safePage * UI_BATCH, totalGroups);
+
+  const pageGroups = useMemo(() => {
+    const start = (safePage - 1) * UI_BATCH;
+    return allVariantGroups.slice(start, start + UI_BATCH);
+  }, [allVariantGroups, safePage]);
+
   const pageIds = pageGroups.flatMap(([, group]) => group.map((product) => product.id));
   const filtersActive = activeTab !== 'ALL' || filterAccount !== 'all' || listFilter !== 'all';
 
@@ -447,23 +496,23 @@ export default function ProductsClient({
   }
 
   let empty = null;
-  if (loadingPage && products.length === 0) {
+  if (loadingPage && fetched.length === 0) {
     empty = null;
-  } else if (products.length === 0 && total === 0 && !search.trim() && activeTab === 'ALL' && filterAccount === 'all' && listFilter === 'all') {
+  } else if (fetched.length === 0 && total === 0 && !search.trim() && activeTab === 'ALL' && filterAccount === 'all' && listFilter === 'all') {
     empty = {
       title: 'No products yet',
       text: 'This page only shows products fetched from your Ozon seller account. A catalog push does not fill this list until Ozon has the product and you sync.',
       action: syncing ? 'Syncing...' : 'Sync from Ozon',
       onClick: syncFromOzon,
     };
-  } else if (groupEntries.length === 0 && search.trim()) {
+  } else if (pageGroups.length === 0 && search.trim()) {
     empty = {
       title: 'No matching products',
       text: 'Nothing matches this search.',
       action: 'Clear search',
       onClick: () => setSearch(''),
     };
-  } else if (groupEntries.length === 0) {
+  } else if (pageGroups.length === 0) {
     empty = {
       title: 'No products in this view',
       text: 'The selected account or status has no matching products.',
@@ -511,7 +560,7 @@ export default function ProductsClient({
           </button>
           <a className="dash-outline" href="/api/products/import/template"><ActionIcon name="down" />Download template</a>
           <button type="button" className="dash-outline" onClick={() => { setNotice(''); setUploading(true); }}><ActionIcon name="up" />Upload spreadsheet</button>
-          <button type="button" className="dash-primary" onClick={() => { setNotice(''); setAdding(true); }}><ActionIcon name="plus" />Add products</button>
+          <button type="button" className="dash-primary" onClick={() => { setNotice(''); setVariantParent(null); setAdding(true); }}><ActionIcon name="plus" />Add product</button>
         </div>
       </div>
 
@@ -576,7 +625,7 @@ export default function ProductsClient({
         )}
       </div>
 
-      {loadingPage ? <p className="page-lead">Loading products…</p> : null}
+      {loadingPage && fetched.length === 0 ? <p className="page-lead">Loading products…</p> : null}
       {loadError ? (
         <p className="notice notice-error" role="alert">
           {loadError}{' '}
@@ -601,11 +650,11 @@ export default function ProductsClient({
                   checked={pageIds.length > 0 && pageIds.every((id) => selection.includes(id))}
                 />
               </th>
-              <th>Image / SKU</th>
-              <th>Product name</th>
+              <th>Product</th>
+              <th>Name</th>
               <th>Status</th>
-              <th>Your price</th>
-              <th>In warehouses</th>
+              <th>Price</th>
+              <th>Warehouse</th>
               <th>Barcode</th>
               <th>Rating</th>
               <th>Content rating</th>
@@ -628,26 +677,74 @@ export default function ProductsClient({
               const isVariantGroup = group.length > 1;
               const isOpen = showVariants[groupId];
               const barcode = barcodeOf(main);
+              const baseTitle = isVariantGroup ? (extractBaseProductName(main.name) || main.name) : (main.name || '—');
+
+              const prices = group.map((p) => Number(p.price)).filter((n) => Number.isFinite(n) && n > 0);
+              const minPrice = prices.length ? Math.min(...prices) : main.price;
+              const maxPrice = prices.length ? Math.max(...prices) : main.price;
+              const priceDisplay = isVariantGroup && minPrice !== maxPrice
+                ? `${fmtPrice(minPrice, main.currency)} – ${fmtPrice(maxPrice, main.currency)}`
+                : fmtPrice(main.price, main.currency);
+
+              const totalStock = group.reduce((sum, p) => sum + (Number(p.stock) || 0), 0);
+              const stockDisplay = isVariantGroup
+                ? `${totalStock} in stock (${group.length} variants)`
+                : `${main.stock == null ? '—' : main.stock}${main.reserved_stock == null ? '' : ` · reserved ${main.reserved_stock}`}`;
+
               return (
                 <React.Fragment key={groupId}>
-                  <tr className={selection.includes(main.id) ? 'is-selected' : ''}>
+                  <tr className={group.some((p) => selection.includes(p.id)) ? 'is-selected' : ''}>
                     <td>
-                      <input type="checkbox" aria-label={`Select ${main.name}`} checked={selection.includes(main.id)} onChange={() => toggleSelect(main.id)} />
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${main.name}`}
+                        checked={group.every((p) => selection.includes(p.id))}
+                        onChange={() => {
+                          const allSelected = group.every((p) => selection.includes(p.id));
+                          if (allSelected) {
+                            setSelection((curr) => curr.filter((id) => !group.some((p) => p.id === id)));
+                          } else {
+                            setSelection((curr) => [...new Set([...curr, ...group.map((p) => p.id)])]);
+                          }
+                        }}
+                      />
                     </td>
                     <td>
                       <div className="prod-sku">
                         <ProductImage product={main} />
                         <div>
-                          <strong>{main.sku || '—'}</strong>
+                          <strong>{isVariantGroup ? `${group.length} Variants` : (main.sku || '—')}</strong>
                           <span>ID {main.ozon_id || '—'}</span>
                         </div>
                       </div>
                     </td>
                     <td className="prod-name">
-                      <button type="button" title={main.name || ''} onClick={() => setSelected(main)}>{main.name || '—'}</button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        <button type="button" title={main.name || ''} onClick={() => setSelected(main)}>
+                          {baseTitle}
+                        </button>
+                        {isVariantGroup && (
+                          <span style={{
+                            background: '#E0F2FE',
+                            color: '#0369A1',
+                            padding: '1px 6px',
+                            borderRadius: '999px',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            lineHeight: 1.4,
+                          }}>
+                            {group.length} variants
+                          </span>
+                        )}
+                      </div>
                       {isVariantGroup && (
-                        <button type="button" className="prod-variants" onClick={() => setShowVariants({ ...showVariants, [groupId]: !isOpen })}>
-                          {isOpen ? 'Hide variants' : `Variants (${group.length})`}
+                        <button
+                          type="button"
+                          className="prod-variants"
+                          onClick={() => setShowVariants({ ...showVariants, [groupId]: !isOpen })}
+                          style={{ cursor: 'pointer', background: 'transparent', border: 'none', padding: '2px 0' }}
+                        >
+                          {isOpen ? '▲ Hide variants' : `▼ Show variants (${group.length})`}
                         </button>
                       )}
                     </td>
@@ -656,31 +753,70 @@ export default function ProductsClient({
                         {main.status_name || main.status || '—'}
                       </span>
                     </td>
-                    <td className="prod-price">{fmtPrice(main.price, main.currency)}</td>
-                    <td className="prod-warehouse">{main.stock == null ? '—' : main.stock}{main.reserved_stock == null ? '' : ` · reserved ${main.reserved_stock}`}</td>
+                    <td className="prod-price">{priceDisplay}</td>
+                    <td className="prod-warehouse">{stockDisplay}</td>
                     <td className="prod-barcode" title={barcode || ''}>{barcode || '—'}</td>
                     <td className="prod-num">{main.rating == null ? '—' : main.rating}</td>
                     <td className="prod-num">{main.content_rating == null ? '—' : main.content_rating}</td>
                     <td className="prod-date">{fmtDate(main.ozon_created_at)}</td>
                     <td className="prod-row-actions">
                       <button type="button" className="prod-open" onClick={() => setSelected(main)}>Open</button>
+                      <button
+                        type="button"
+                        className="dash-ghost"
+                        style={{ fontSize: '12px', padding: '2px 6px', color: '#0369A1', fontWeight: 600, background: 'transparent', border: 'none', cursor: 'pointer' }}
+                        title="Add a variant (new weight/size) to this product"
+                        onClick={() => {
+                          setVariantParent(main);
+                          setAdding(true);
+                        }}
+                      >
+                        + Variant
+                      </button>
                       <button type="button" className="prod-delete" onClick={() => { setRemoveError(''); setRemoveTarget(main); }}>Delete</button>
                     </td>
                   </tr>
-                  {isOpen && group.slice(1).map((variant) => (
-                    <tr key={variant.id} className="prod-variant">
+                  {isOpen && group.map((variant) => (
+                    <tr key={variant.id} className="prod-variant" style={{ background: '#F8FAFC' }}>
                       <td>
-                        <input type="checkbox" aria-label={`Select ${variant.name}`} checked={selection.includes(variant.id)} onChange={() => toggleSelect(variant.id)} />
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${variant.name}`}
+                          checked={selection.includes(variant.id)}
+                          onChange={() => toggleSelect(variant.id)}
+                        />
                       </td>
                       <td>
-                        <div className="prod-sku">
+                        <div className="prod-sku" style={{ paddingLeft: '20px' }}>
                           <ProductImage product={variant} />
-                          <strong>{variant.sku || '—'}</strong>
+                          <div>
+                            <strong>{variant.sku || '—'}</strong>
+                            <span style={{ fontSize: '11px', color: '#64748B' }}>Variant ID {variant.ozon_id || '—'}</span>
+                          </div>
                         </div>
                       </td>
-                      <td className="prod-name">{variant.name || '—'}</td>
-                      <td colSpan="8">
-                        {fmtPrice(variant.price, variant.currency)} · {variant.stock == null ? '—' : `${variant.stock} in stock`} · {variant.status_name || variant.status || '—'}
+                      <td className="prod-name">
+                        <button type="button" title={variant.name || ''} onClick={() => setSelected(variant)}>
+                          {variant.name || '—'}
+                        </button>
+                      </td>
+                      <td>
+                        <span className={`prod-status is-${statusTone(variant)}`}>
+                          {variant.status_name || variant.status || '—'}
+                        </span>
+                      </td>
+                      <td className="prod-price">{fmtPrice(variant.price, variant.currency)}</td>
+                      <td className="prod-warehouse">
+                        {variant.stock == null ? '—' : `${variant.stock} in stock`}
+                        {variant.reserved_stock ? ` · res ${variant.reserved_stock}` : ''}
+                      </td>
+                      <td className="prod-barcode">{barcodeOf(variant) || '—'}</td>
+                      <td className="prod-num">{variant.rating == null ? '—' : variant.rating}</td>
+                      <td className="prod-num">{variant.content_rating == null ? '—' : variant.content_rating}</td>
+                      <td className="prod-date">{fmtDate(variant.ozon_created_at)}</td>
+                      <td className="prod-row-actions">
+                        <button type="button" className="prod-open" onClick={() => setSelected(variant)}>Open</button>
+                        <button type="button" className="prod-delete" onClick={() => { setRemoveError(''); setRemoveTarget(variant); }}>Delete</button>
                       </td>
                     </tr>
                   ))}
@@ -706,7 +842,16 @@ export default function ProductsClient({
       ) : null}
       </section>
 
-      <DetailDrawer product={selected} onClose={() => setSelected(null)} onDelete={(product) => { setRemoveError(''); setRemoveTarget(product); }} />
+      <DetailDrawer
+        product={selected}
+        onClose={() => setSelected(null)}
+        onDelete={(product) => { setRemoveError(''); setRemoveTarget(product); }}
+        onAddVariant={(p) => {
+          setSelected(null);
+          setVariantParent(p);
+          setAdding(true);
+        }}
+      />
       {removeTarget && (
         <div className="confirm-backdrop" onClick={() => { if (!removing) setRemoveTarget(null); }}>
           <div className="confirm-card" role="dialog" aria-modal="true" aria-labelledby="remove-product-title" onClick={(event) => event.stopPropagation()}>
@@ -722,7 +867,17 @@ export default function ProductsClient({
           </div>
         </div>
       )}
-      {adding && <AddProductForm accounts={accounts} onClose={() => setAdding(false)} />}
+      {adding && (
+        <AddProductForm
+          accounts={accounts}
+          existingProducts={fetched}
+          initialParentProduct={variantParent}
+          onClose={() => {
+            setAdding(false);
+            setVariantParent(null);
+          }}
+        />
+      )}
       {uploading && (
         <BulkUpload
           accounts={accounts}
