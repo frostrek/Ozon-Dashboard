@@ -705,7 +705,7 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
 
                   {/* Title & SKU */}
                   <td className="orders-title-cell">
-                    <p className="orders-title" title={pr.name || ''}>{pr.name || '—'}</p>
+                    <p className="orders-title" title={pr._russian_name ? `${pr.name}\n(Original: ${pr._russian_name})` : (pr.name || '')}>{pr.name || '—'}</p>
                     <p className="orders-sku">{pr.offer_id || '—'} · Qty: {pr.quantity}</p>
                   </td>
 
