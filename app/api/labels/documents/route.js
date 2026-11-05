@@ -23,20 +23,45 @@ function selectedLines(body) {
       quantity: Number(row?.quantity) || 1,
       postingNumber: String(row?.postingNumber || '').trim(),
       warehouse: String(row?.warehouse || '').trim(),
+      image: String(row?.image || '').trim(),
+      deliveryService: String(row?.deliveryService || '').trim(),
     }))
     .filter((row) => row.orderId || row.postingNumber);
+}
+
+function firstHttpUrl(value) {
+  if (!value) return '';
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (/^https?:\/\//i.test(text) || text.startsWith('data:image/')) return text;
+    return '';
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const url = firstHttpUrl(item);
+      if (url) return url;
+    }
+    return '';
+  }
+  if (typeof value === 'object') {
+    return firstHttpUrl(value.url || value.src || value.href || value.file_name);
+  }
+  return '';
 }
 
 function productsOf(order) {
   const parsed = order.parsed || {};
   const warehouse = parsed.delivery_method?.warehouse || '';
+  const deliveryService = parsed.delivery_method?.tpl_provider || parsed.delivery_method?.name || '';
   return (Array.isArray(parsed.products) ? parsed.products : []).map((product) => ({
     orderId: order.id,
     postingNumber: order.posting_number,
     warehouse,
+    deliveryService,
     name: product.name || product.title || 'Product',
     sku: String(product.offer_id || product.sku || '').trim(),
     quantity: Number(product.quantity) || 1,
+    image: firstHttpUrl(product.primary_image || product.photo || product.image || product.images || product.picture),
   }));
 }
 
@@ -224,13 +249,16 @@ export async function POST(request) {
         return {
           orderId: line.orderId,
           postingNumber: line.postingNumber || order?.posting_number || '',
-          warehouse: line.warehouse || order?.parsed?.delivery_method?.warehouse || '',
+          warehouse: line.warehouse || fromOrder?.warehouse || order?.parsed?.delivery_method?.warehouse || '',
+          deliveryService: fromOrder?.deliveryService || order?.parsed?.delivery_method?.tpl_provider || order?.parsed?.delivery_method?.name || '',
           name: line.name || fromOrder?.name || 'Product',
           sku: line.sku || fromOrder?.sku || '',
           quantity: line.quantity || fromOrder?.quantity || 1,
+          image: fromOrder?.image || '',
         };
       }).filter((row) => row.postingNumber)
       : [];
+
     if (!saved.length) {
       orderList.forEach((order) => {
         productsOf(order).forEach((product) => {
@@ -238,11 +266,19 @@ export async function POST(request) {
         });
       });
     }
+
     if (!saved.length) {
       return NextResponse.json({ error: 'The selected products could not be added to the list.' }, { status: 400 });
     }
+
     const rowsForPdf = saved;
-    const pdf = await renderProductListPdf(rowsForPdf);
+    const meta = {
+      warehouse: rowsForPdf.find((r) => r.warehouse)?.warehouse || orderList[0]?.parsed?.delivery_method?.warehouse || 'Mumbai Warehouse',
+      deliveryService: rowsForPdf.find((r) => r.deliveryService)?.deliveryService || orderList[0]?.parsed?.delivery_method?.tpl_provider || orderList[0]?.parsed?.delivery_method?.name || 'GBS & MyIndia Extra Small Express IN',
+      shipmentQuantity: new Set(rowsForPdf.map((r) => r.postingNumber)).size,
+    };
+
+    const pdf = await renderProductListPdf(rowsForPdf, meta);
     const note = 'This product list is built here from the order details Ozon already sent. It is not Ozon’s own PDF.';
     return new NextResponse(pdf, {
       headers: {
