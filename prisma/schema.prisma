@@ -73,6 +73,9 @@ model Product {
   @@index([sku])
   @@index([brand])
   @@index([category_name])
+  @@index([account_id, status, ozon_created_at(sort: Desc)])
+  @@index([status, stock])
+  @@index([ozon_created_at(sort: Desc)])
 }
 
 // ─── EXISTING TABLES (mirrors exact SQLite schema — DO NOT ALTER) ─────────────
