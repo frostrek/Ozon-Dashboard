@@ -323,9 +323,7 @@ export default function PipelineClient({ accounts, initialAccountId }) {
   return (
     <div className="pipe-page">
       <header className="pipe-head">
-        <p className="pipe-kicker">Pipeline</p>
         <h1>Order Pipeline</h1>
-        <p>Run order processing, monitor live progress, and review previous runs.</p>
       </header>
 
       <section className="stat-card pipe-control">
@@ -370,35 +368,30 @@ export default function PipelineClient({ accounts, initialAccountId }) {
             <span className="field-label">Orders through</span>
             <input id="pipeline-to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
           </label>
-          <button
-            type="button"
-            className="dash-primary pipe-start-btn"
-            onClick={startPipeline}
-            disabled={starting || stopping || !accountId}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
-            {starting ? 'Starting...' : 'Start Pipeline'}
-          </button>
+          {liveState === 'running' && stopRunId ? (
+            <button
+              type="button"
+              className="dash-outline pipe-stop-btn"
+              onClick={() => stopPipeline(stopRunId)}
+              disabled={stopping}
+              style={{ borderColor: '#ef4444', color: '#ef4444' }}
+            >
+              {stopping ? 'Stopping...' : 'Stop Pipeline'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="dash-primary pipe-start-btn"
+              onClick={startPipeline}
+              disabled={starting || stopping || !accountId}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+              {starting ? 'Starting...' : 'Start Pipeline'}
+            </button>
+          )}
         </div>
 
-        <div className="pipe-status-line" aria-live="polite">
-          <span>
-            <span className={`pipe-dot ${liveState === 'running' ? 'is-run' : 'is-idle'}`} />
-            Status
-            <strong>{historyState === 'loading' ? 'Checking' : (liveState === 'running' ? 'Running' : 'Idle')}</strong>
-            <em>{liveState === 'running' ? (runningForAccount?.stage || 'In progress') : 'Not running'}</em>
-          </span>
-          <span>
-            Last run
-            <strong>{historyState === 'loading' ? '…' : (lastRun ? statusLabel(lastRun.status, lastRun.cancelled) : '—')}</strong>
-            <em>{lastRun ? formatWhen(lastRun.start_time) : 'No runs yet'}</em>
-          </span>
-          <span>
-            Last sync
-            <strong>{historyState === 'loading' ? '…' : (lastSuccess ? 'Success' : '—')}</strong>
-            <em>{lastSuccess ? formatWhen(lastSuccess.end_time || lastSuccess.start_time) : 'Never synced'}</em>
-          </span>
-        </div>
+
       </section>
 
       {error && <p className="notice notice-error" role="alert">{error}</p>}
@@ -423,83 +416,30 @@ export default function PipelineClient({ accounts, initialAccountId }) {
         </section>
       )}
 
-      <section className="stat-card pipe-live">
-        <div className="pipe-live-head">
-          <div>
-            <h2>Live Run</h2>
-            <span className={liveState === 'running' ? 'pipe-badge pipe-badge-run' : 'pipe-badge pipe-badge-muted'}>
-              {liveState === 'running' ? 'Running' : 'Idle'}
-            </span>
-          </div>
-          <Link href="/logs">View all logs</Link>
-        </div>
-        <div className="pipe-live-grid">
-          <div className="pipe-term">
-            <div className="pipe-term-bar">
-              <span>Live logs{liveState === 'running' ? ' · streaming' : ''}</span>
-              <button type="button" className="pipe-term-btn" onClick={copyLogs} disabled={!logs}>
-                {copied ? 'Copied' : 'Copy'}
-              </button>
-            </div>
-            <div ref={logRef} className="pipe-term-body" role="log" aria-live="polite">
-              {logLines.length === 0 && <p className="pipe-term-empty">Logs appear here after you start a pipeline.</p>}
-              {logLines.map((line, index) => {
-                const entry = parseLogLine(line);
-                return (
-                  <p key={`${index}-${entry.text.slice(0, 24)}`} className={`pipe-line is-${entry.level}`}>
-                    {entry.time && <time>{entry.time}</time>}
-                    <span className="pipe-level">{entry.level === 'plain' ? '' : entry.level}</span>
-                    <span>{entry.text}</span>
-                  </p>
-                );
-              })}
-            </div>
-          </div>
 
-          <aside className="pipe-side">
-            {liveState === 'running' ? (
-              <>
-                <h3>Pipeline in progress</h3>
-                <p>Running for {selected?.name || 'the selected account'}.</p>
-                <dl>
-                  <div><dt>Started</dt><dd>{runningForAccount ? formatWhen(runningForAccount.start_time) : '—'}</dd></div>
-                  <div><dt>Stage</dt><dd>{runningForAccount?.stage || '—'}</dd></div>
-                  <div><dt>Status</dt><dd>Running</dd></div>
-                </dl>
-                {stopRunId && (
-                  <button type="button" className="pipe-stop" onClick={() => stopPipeline(stopRunId)} disabled={stopping}>
-                    {stopping ? 'Stopping...' : 'Stop pipeline'}
-                  </button>
-                )}
-              </>
-            ) : settled ? (
-              <>
-                <h3>{statusLabel(settled.status, settled.cancelled)}</h3>
-                <p>{settledError || 'This run has finished.'}</p>
-                <dl>
-                  <div><dt>Started</dt><dd>{formatWhen(settled.start_time)}</dd></div>
-                  <div><dt>Finished</dt><dd>{formatWhen(settled.end_time)}</dd></div>
-                  <div><dt>Stage</dt><dd>{settled.stage || '—'}</dd></div>
-                </dl>
-              </>
-            ) : (
-              <>
-                <span className="pipe-side-mark" aria-hidden="true">
-                  <svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg>
-                </span>
-                <h3>No run in progress</h3>
-                <p>Start a pipeline to see live progress here.</p>
-              </>
-            )}
-          </aside>
-        </div>
-      </section>
 
       <section className="stat-card pipe-history">
-        <div className="pipe-live-head">
+        <div className="pipe-live-head" style={{ alignItems: 'center' }}>
           <div>
             <h2>Run history</h2>
-            <p>Previous runs for every account.</p>
+          </div>
+          <div className="pipe-status-line" style={{ borderTop: 'none', paddingTop: 0, margin: 0 }} aria-live="polite">
+            <span>
+              <span className={`pipe-dot ${liveState === 'running' ? 'is-run' : 'is-idle'}`} />
+              Status
+              <strong>{historyState === 'loading' ? 'Checking' : (liveState === 'running' ? 'Running' : 'Idle')}</strong>
+              <em>{liveState === 'running' ? (runningForAccount?.stage || 'In progress') : 'Not running'}</em>
+            </span>
+            <span>
+              Last run
+              <strong>{historyState === 'loading' ? '…' : (lastRun ? statusLabel(lastRun.status, lastRun.cancelled) : '—')}</strong>
+              <em>{lastRun ? formatWhen(lastRun.start_time) : 'No runs yet'}</em>
+            </span>
+            <span>
+              Last sync
+              <strong>{historyState === 'loading' ? '…' : (lastSuccess ? 'Success' : '—')}</strong>
+              <em>{lastSuccess ? formatWhen(lastSuccess.end_time || lastSuccess.start_time) : 'Never synced'}</em>
+            </span>
           </div>
         </div>
         {historyState === 'error' && <p className="notice notice-error" role="alert">{historyError}</p>}
@@ -539,10 +479,20 @@ export default function PipelineClient({ accounts, initialAccountId }) {
                     <td>{run.duration || '—'}</td>
                     <td>{run.orders_processed == null ? '—' : run.orders_processed}</td>
                     <td>
-                      {(run.files || []).length === 0 && '—'}
-                      {(run.files || []).map((file) => (
-                        <a key={file.name} href={file.url} className="file-link pipe-file" title={file.name}>{file.name}</a>
-                      ))}
+                      {(() => {
+                        const visibleFiles = (run.files || []).filter((file) =>
+                          file.name === 'final.pdf' ||
+                          file.name === '03_report.xlsx' ||
+                          /final/i.test(file.name) ||
+                          /report/i.test(file.name)
+                        );
+                        if (visibleFiles.length === 0) return '—';
+                        return visibleFiles.map((file) => (
+                          <a key={file.name} href={file.url} className="file-link pipe-file" title={file.name}>
+                            {file.name}
+                          </a>
+                        ));
+                      })()}
                     </td>
                     <td className="pipe-error-cell">
                       {message ? (
