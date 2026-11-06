@@ -45,7 +45,6 @@ export default function DashboardPanels({ accounts, series, recent, todayMoney, 
         <div className="dash-panel-head">
           <div>
             <h2>Accounts</h2>
-            <p>Connection is whether the seller account is active. Pipeline is the last run.</p>
           </div>
         </div>
         <div className="dash-table-wrap">
@@ -111,7 +110,6 @@ export default function DashboardPanels({ accounts, series, recent, todayMoney, 
           <div className="dash-panel-head">
             <div>
               <h2>Fulfillment trends</h2>
-              <p>Orders saved in each stage, by the day they were created.</p>
             </div>
             <div className="dash-range" role="group" aria-label="Chart period">
               {[7, 14].map((value) => (

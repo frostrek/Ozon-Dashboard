@@ -72,7 +72,6 @@ export default async function AccountsPage({ searchParams }) {
       <header className="accounts-head">
         <div>
           <h1>Accounts</h1>
-          <p>Manage your Ozon seller accounts. Add a client ID and API key, then run the pipeline for that account.</p>
         </div>
         <div className="dash-status-pill">
           <span className="dash-status-dot" />

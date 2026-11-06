@@ -20,7 +20,6 @@ export default function AccountsList({ rows }) {
       <div className="accounts-table-head">
         <div>
           <h2>Connected Accounts</h2>
-          <p>Overview of all connected Ozon accounts.</p>
         </div>
         <label className="accounts-search">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>

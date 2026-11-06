@@ -52,47 +52,38 @@ export default function AccountForm({ action, saved }) {
   return (
     <form action={formAction} className="accounts-add">
       <SavedToast saved={saved} />
-      <div className="accounts-add-layout">
-        <div className="accounts-add-copy">
-          <span className="accounts-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="3" /><path d="M19 8v6M22 11h-6" /></svg>
+      <div className="accounts-add-top">
+        <SubmitButton />
+      </div>
+      <div className="accounts-fields">
+        <label className="field">
+          <span className="field-label">Account name</span>
+          <input name="name" placeholder="Account name" required autoComplete="organization" />
+        </label>
+        <label className="field">
+          <span className="field-label">Ozon client ID</span>
+          <input name="client_id" placeholder="Client ID" required inputMode="numeric" autoComplete="off" />
+        </label>
+        <label className="field">
+          <span className="field-label">Ozon API key</span>
+          <span className="accounts-key">
+            <input
+              name="api_key"
+              placeholder="API key"
+              type={showKey ? 'text' : 'password'}
+              required
+              autoComplete="new-password"
+            />
+            <button
+              type="button"
+              className="accounts-eye"
+              aria-pressed={showKey}
+              onClick={() => setShowKey((current) => !current)}
+            >
+              {showKey ? 'Hide' : 'Show'}
+            </button>
           </span>
-          <div>
-            <h2>Add Account</h2>
-            <p>Connect a seller account. The API key stays in this app.</p>
-          </div>
-        </div>
-        <div className="accounts-fields">
-          <label className="field">
-            <span className="field-label">Account name</span>
-            <input name="name" placeholder="Account name" required autoComplete="organization" />
-          </label>
-          <label className="field">
-            <span className="field-label">Ozon client ID</span>
-            <input name="client_id" placeholder="Client ID" required inputMode="numeric" autoComplete="off" />
-          </label>
-          <label className="field">
-            <span className="field-label">Ozon API key</span>
-            <span className="accounts-key">
-              <input
-                name="api_key"
-                placeholder="API key"
-                type={showKey ? 'text' : 'password'}
-                required
-                autoComplete="new-password"
-              />
-              <button
-                type="button"
-                className="accounts-eye"
-                aria-pressed={showKey}
-                onClick={() => setShowKey((current) => !current)}
-              >
-                {showKey ? 'Hide' : 'Show'}
-              </button>
-            </span>
-          </label>
-          <SubmitButton />
-        </div>
+        </label>
       </div>
       {state?.error && <p className="notice notice-error accounts-form-error" role="alert">{state.error}</p>}
     </form>
