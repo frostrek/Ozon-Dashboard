@@ -20,7 +20,7 @@ const TABS = [
   { id: 'OUT_OF_STOCK', label: 'Out of stock' },
 ];
 
-const FETCH_SIZE = 100;
+const FETCH_SIZE = 25;
 const UI_BATCH = 10;
 
 function parseJson(value, fallback) {
@@ -64,10 +64,11 @@ function fmtDate(value) {
 }
 
 function statusTone(product) {
-  const label = String(product.status_name || '');
-  if (product.status === 'ERROR' || /error|ошиб/i.test(label)) return 'bad';
-  if (/improv|улучш/i.test(label)) return 'warn';
-  if (product.status === 'ACTIVE' || /прода/i.test(label)) return 'ok';
+  const label = String(product.status_name || '').toLowerCase();
+  const status = String(product.status || '').toUpperCase();
+  if (status === 'ERROR' || /error|ошиб|reject|отклон/i.test(label)) return 'bad';
+  if (/improv|улучш|warn|moder|модер/i.test(label)) return 'warn';
+  if (status === 'ACTIVE' || /прода|for sale|selling|ready/i.test(label)) return 'ok';
   return 'muted';
 }
 
@@ -356,6 +357,21 @@ export default function ProductsClient({
   }
 
   useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/products/counts?account=${encodeURIComponent(filterAccount)}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled && data?.counts) {
+          setCounts(data.counts);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [filterAccount]);
+
+  useEffect(() => {
     const timer = setTimeout(() => {
       setFetched([]);
       setCurrentPage(1);
@@ -525,9 +541,7 @@ export default function ProductsClient({
     <div className="prod-page">
       <header className="prod-hero">
         <div>
-          <p className="prod-kicker-page">Products</p>
           <h1>Products</h1>
-          <p>Manage your Ozon catalog, monitor listing quality, and keep product information up to date.</p>
         </div>
         <div className="prod-hero-art" aria-hidden="true">
           <svg viewBox="0 0 180 92">
@@ -655,7 +669,6 @@ export default function ProductsClient({
               <th>Status</th>
               <th>Price</th>
               <th>Warehouse</th>
-              <th>Barcode</th>
               <th>Rating</th>
               <th>Content rating</th>
               <th>Creation date</th>
@@ -665,7 +678,7 @@ export default function ProductsClient({
           <tbody>
             {empty && (
               <tr>
-                <td colSpan="11" className="prod-empty">
+                <td colSpan="10" className="prod-empty">
                   <strong>{empty.title}</strong>
                   <p>{empty.text}</p>
                   {empty.action && <button type="button" className="dash-outline" onClick={empty.onClick}>{empty.action}</button>}
@@ -755,9 +768,8 @@ export default function ProductsClient({
                     </td>
                     <td className="prod-price">{priceDisplay}</td>
                     <td className="prod-warehouse">{stockDisplay}</td>
-                    <td className="prod-barcode" title={barcode || ''}>{barcode || '—'}</td>
-                    <td className="prod-num">{main.rating == null ? '—' : main.rating}</td>
-                    <td className="prod-num">{main.content_rating == null ? '—' : main.content_rating}</td>
+                    <td className="prod-num">{!main.rating ? '—' : main.rating}</td>
+                    <td className="prod-num">{!main.content_rating ? '—' : main.content_rating}</td>
                     <td className="prod-date">{fmtDate(main.ozon_created_at)}</td>
                     <td className="prod-row-actions">
                       <button type="button" className="prod-open" onClick={() => setSelected(main)}>Open</button>
@@ -810,9 +822,8 @@ export default function ProductsClient({
                         {variant.stock == null ? '—' : `${variant.stock} in stock`}
                         {variant.reserved_stock ? ` · res ${variant.reserved_stock}` : ''}
                       </td>
-                      <td className="prod-barcode">{barcodeOf(variant) || '—'}</td>
-                      <td className="prod-num">{variant.rating == null ? '—' : variant.rating}</td>
-                      <td className="prod-num">{variant.content_rating == null ? '—' : variant.content_rating}</td>
+                      <td className="prod-num">{!variant.rating ? '—' : variant.rating}</td>
+                      <td className="prod-num">{!variant.content_rating ? '—' : variant.content_rating}</td>
                       <td className="prod-date">{fmtDate(variant.ozon_created_at)}</td>
                       <td className="prod-row-actions">
                         <button type="button" className="prod-open" onClick={() => setSelected(variant)}>Open</button>

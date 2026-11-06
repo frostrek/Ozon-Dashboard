@@ -70,7 +70,7 @@ const MAIN_LINKS = [
   },
   {
     href: '/catalog',
-    label: 'Catalog',
+    label: 'Product Sourcing',
     icon: (
       <NavIcon>
         <path d="M4 5h16v4H4z" />

@@ -249,7 +249,6 @@ export default function LabelsClient() {
     <div className="label-page">
       <header className="label-hero">
         <div>
-          <p className="label-kicker">Labels</p>
           <h1>Label Generator</h1>
           <p>Find eligible orders, download shipping documents, and generate thermal labels.</p>
         </div>

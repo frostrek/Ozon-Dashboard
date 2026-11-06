@@ -181,14 +181,14 @@ export default function CatalogBoard({ runs }) {
       <div className="catalog-board">
         <header className="catalog-hero">
           <div>
-            <h1>Catalog</h1>
-            <p>Manage Amazon-to-Ozon catalog runs and monitor publishing progress.</p>
+            <h1>Product Sourcing</h1>
+            <p>Manage Amazon-to-Ozon sourcing runs and monitor publishing progress.</p>
           </div>
           <Link className="dash-primary catalog-new" href="/catalog/new"><Icon name="plus" />New run</Link>
         </header>
         <CatalogTabs current="runs" />
         <section className="catalog-empty">
-          <h2>No catalog runs yet</h2>
+          <h2>No sourcing runs yet</h2>
           <p>Start a run to scrape products, preview the Russian titles and USD prices, and push the ones that match the weights you choose.</p>
           <Link className="dash-primary" href="/catalog/new">Start a run</Link>
         </section>
@@ -200,8 +200,8 @@ export default function CatalogBoard({ runs }) {
     <div className="catalog-board">
       <header className="catalog-hero">
         <div>
-          <h1>Catalog</h1>
-          <p>Manage Amazon-to-Ozon catalog runs and monitor publishing progress.</p>
+          <h1>Product Sourcing</h1>
+          <p>Manage Amazon-to-Ozon sourcing runs and monitor publishing progress.</p>
         </div>
         <Link className="dash-primary catalog-new" href="/catalog/new"><Icon name="plus" />New run</Link>
       </header>

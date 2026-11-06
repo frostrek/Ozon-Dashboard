@@ -425,7 +425,7 @@ export default function RunLive({ initial, accounts = [] }) {
     <div className="run-page">
       <div className="run-main">
         <p className="crumbs">
-          <Link href="/catalog">Catalog</Link>
+          <Link href="/catalog">Product Sourcing</Link>
           <span>/</span>
           <Link href="/catalog">Runs</Link>
           <span>/</span>

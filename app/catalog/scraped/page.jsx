@@ -17,8 +17,8 @@ export default async function ScrapedProductsPage({ searchParams }) {
     <div className="catalog-page">
       <header className="catalog-hero">
         <div>
-          <h1>Catalog</h1>
-          <p>Every product saved from a catalog scrape. The newest scrape is first.</p>
+          <h1>Product Sourcing</h1>
+          <p>Every product saved from an Amazon sourcing scrape. The newest scrape is first.</p>
         </div>
         <Link className="dash-primary catalog-new" href="/catalog/new">New run</Link>
       </header>

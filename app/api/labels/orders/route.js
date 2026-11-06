@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '../../../../lib/prisma';
 import { dbStatusFor, DB_STATUS_LABEL } from '../../../../lib/orders/statusMap';
 import { accountNamesById } from '../../../../lib/accountNames';
+import { translateBulk } from '../../../../lib/labels/utils/translate';
 
 export const dynamic = 'force-dynamic';
 
@@ -84,6 +85,31 @@ export async function GET(request) {
   ]);
   const names = await accountNamesById(dbOrders.map((order) => order.account_id));
 
+  // Collect all unique Russian names to translate in batch
+  const allNames = new Set();
+  dbOrders.forEach((order) => {
+    let parsed = {};
+    try { parsed = JSON.parse(order.raw_json || '{}'); } catch { parsed = {}; }
+    const items = Array.isArray(parsed.products) ? parsed.products : [];
+    items.forEach((p) => {
+      const n = p?.name || p?.title;
+      if (n && /[а-яА-ЯёЁ]/.test(n)) allNames.add(n);
+    });
+  });
+
+  const translatedNameMap = new Map();
+  if (allNames.size > 0) {
+    try {
+      const uniqueNames = [...allNames];
+      const translated = await translateBulk(uniqueNames);
+      uniqueNames.forEach((orig, idx) => {
+        translatedNameMap.set(orig, translated[idx] || orig);
+      });
+    } catch (err) {
+      console.error('[labels/orders] Translation error:', err);
+    }
+  }
+
   const products = [];
   const warehouses = new Set();
   dbOrders.forEach((order) => {
@@ -100,7 +126,10 @@ export async function GET(request) {
     const items = Array.isArray(parsed.products) && parsed.products.length ? parsed.products : [null];
     items.forEach((product, index) => {
       const offer = String(product?.offer_id || product?.sku || '').trim();
-      const name = product?.name || product?.title || '';
+      let name = product?.name || product?.title || '';
+      if (translatedNameMap.has(name)) {
+        name = translatedNameMap.get(name);
+      }
       if (warehouse && place !== warehouse) return;
       if (sku && !offer.toLowerCase().includes(sku) && !name.toLowerCase().includes(sku)) return;
       products.push({

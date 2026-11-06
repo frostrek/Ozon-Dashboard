@@ -17,10 +17,10 @@ export default async function CatalogRunPage({ params }) {
     return (
       <div>
         <header className="page-head">
-          <h1>Catalog run</h1>
+          <h1>Sourcing run</h1>
           <p className="page-lead">This run is not on the server. Job files stay on the machine that started them, and Render removes them when the service restarts.</p>
         </header>
-        <Link className="dash-primary" href="/catalog">Back to catalog</Link>
+        <Link className="dash-primary" href="/catalog">Back to Product Sourcing</Link>
       </div>
     );
   }
@@ -31,7 +31,7 @@ export default async function CatalogRunPage({ params }) {
     <RunLive
       initial={run}
       accounts={toPlain(accounts) || []}
-      otherActive={other ? { runId: other.runId, title: other.keyword || other.asin || 'Catalog run' } : null}
+      otherActive={other ? { runId: other.runId, title: other.keyword || other.asin || 'Sourcing run' } : null}
     />
   );
 }
