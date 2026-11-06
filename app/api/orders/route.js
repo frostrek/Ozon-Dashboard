@@ -11,9 +11,13 @@ export async function GET(request) {
     const status = url.searchParams.get('status') || 'ALL';
     const account = url.searchParams.get('account') || 'all';
     const date = url.searchParams.get('date') || 'all';
+    const from = url.searchParams.get('from') || '';
+    const to = url.searchParams.get('to') || '';
+    const fromTime = url.searchParams.get('fromTime') || '';
+    const toTime = url.searchParams.get('toTime') || '';
     const q = url.searchParams.get('q') || '';
     const [data, statusCounts] = await Promise.all([
-      listOrdersPage({ page, pageSize, status, account, date, q }),
+      listOrdersPage({ page, pageSize, status, account, date, from, to, fromTime, toTime, q }),
       orderStatusCounts(account),
     ]);
     return NextResponse.json({ ...data, statusCounts });

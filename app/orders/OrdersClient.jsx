@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import TypeSelect from '../components/TypeSelect';
 import ListPager from '../components/ListPager';
@@ -256,7 +256,7 @@ function Row({ label, value }) {
   );
 }
 
-export default function OrdersClient({ orders, statusCounts, accounts, currentStatus, currentAccount, currentDate, currentSearch, filteredCount = 0 }) {
+export default function OrdersClient({ orders, statusCounts, accounts, currentStatus, currentAccount, currentDate, currentFrom = '', currentTo = '', currentFromTime = '', currentToTime = '', currentSearch, filteredCount = 0 }) {
   const router = useRouter();
   const [selected, setSelected] = useState(null);
   const [statusOverrides, setStatusOverrides] = useState({});
@@ -266,12 +266,47 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
   const [statusFilter, setStatusFilter] = useState(currentStatus || 'ALL');
   const [accountFilter, setAccountFilter] = useState(currentAccount || 'all');
   const [dateFilter, setDateFilter] = useState(currentDate || 'all');
+  const [fromDate, setFromDate] = useState(currentFrom || '');
+  const [toDate, setToDate] = useState(currentTo || '');
+  const [fromTime, setFromTime] = useState(currentFromTime || '');
+  const [toTime, setToTime] = useState(currentToTime || '');
+  const [tempFromDate, setTempFromDate] = useState(currentFrom || '');
+  const [tempToDate, setTempToDate] = useState(currentTo || '');
+  const [tempFromTime, setTempFromTime] = useState(currentFromTime || '');
+  const [tempToTime, setTempToTime] = useState(currentToTime || '');
+  const [showCustomDate, setShowCustomDate] = useState(false);
+  const customDateRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (customDateRef.current && !customDateRef.current.contains(e.target)) {
+        setShowCustomDate(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
   const [searchFilter, setSearchFilter] = useState(currentSearch || '');
   const [counts, setCounts] = useState(statusCounts || {});
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function handleRefresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      setStatusOverrides({});
+      router.refresh();
+      await scroll.refresh();
+    } catch (err) {
+      console.error('[Orders] Refresh failed:', err);
+    } finally {
+      setRefreshing(false);
+    }
+  }
   const scroll = useBatchScroll({
     initialItems: orders,
     initialTotal: filteredCount,
-    resetKey: `${statusFilter}|${accountFilter}|${dateFilter}|${searchFilter}`,
+    resetKey: `${statusFilter}|${accountFilter}|${dateFilter}|${fromDate}|${toDate}|${fromTime}|${toTime}|${searchFilter}`,
     pageMode: true,
     loadPage: async (page) => {
       const params = new URLSearchParams({
@@ -318,7 +353,6 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
     { key: 'all',       label: 'All Time' },
     { key: 'today',     label: 'Today'    },
     { key: 'yesterday', label: 'Yesterday'},
-    { key: 'week',      label: 'Last 7 Days' },
   ];
 
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -539,7 +573,6 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
       <header className="orders-hero">
         <div>
           <h1>Orders</h1>
-          <p>Manage fulfillment, track delivery deadlines, and update order statuses.</p>
         </div>
         <div className="orders-art">
           <img src="/orders-hero.png" alt="" />
@@ -573,68 +606,182 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
               </button>
             );
           })}
+
+          <div className="orders-custom-date-wrap" ref={customDateRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setTempFromDate(fromDate);
+                setTempToDate(toDate);
+                setTempFromTime(fromTime);
+                setTempToTime(toTime);
+                setShowCustomDate(!showCustomDate);
+              }}
+              className={`orders-custom-date-btn${dateFilter === 'custom' ? ' is-on' : ''}`}
+              aria-label="Custom date and time range"
+              title="Custom date and time range"
+            >
+              <Icon><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M8 3v4M16 3v4M4 10h16" /></Icon>
+              <span>
+                {dateFilter === 'custom' && (fromDate || toDate)
+                  ? `${fromDate || '...'}${fromTime ? ' ' + fromTime : ''} — ${toDate || '...'}${toTime ? ' ' + toTime : ''}`
+                  : 'Custom'}
+              </span>
+              <Icon><path d="m6 9 6 6 6-6" /></Icon>
+            </button>
+
+            {showCustomDate ? (
+              <div className="orders-custom-popover">
+                <div className="orders-custom-popover-header">
+                  <strong>Date & Time Range</strong>
+                  <button
+                    type="button"
+                    className="orders-custom-close-btn"
+                    onClick={() => setShowCustomDate(false)}
+                    aria-label="Close"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="orders-custom-popover-grid">
+                  <div className="orders-custom-group">
+                    <label className="orders-custom-label">From Date</label>
+                    <input
+                      type="date"
+                      className="orders-custom-input"
+                      value={tempFromDate}
+                      onChange={(e) => setTempFromDate(e.target.value)}
+                    />
+                  </div>
+                  <div className="orders-custom-group">
+                    <label className="orders-custom-label">From Time</label>
+                    <input
+                      type="time"
+                      className="orders-custom-input"
+                      value={tempFromTime}
+                      onChange={(e) => setTempFromTime(e.target.value)}
+                    />
+                  </div>
+                  <div className="orders-custom-group">
+                    <label className="orders-custom-label">To Date</label>
+                    <input
+                      type="date"
+                      className="orders-custom-input"
+                      value={tempToDate}
+                      onChange={(e) => setTempToDate(e.target.value)}
+                    />
+                  </div>
+                  <div className="orders-custom-group">
+                    <label className="orders-custom-label">To Time</label>
+                    <input
+                      type="time"
+                      className="orders-custom-input"
+                      value={tempToTime}
+                      onChange={(e) => setTempToTime(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="orders-custom-popover-actions">
+                  <button
+                    type="button"
+                    className="dash-outline orders-custom-clear-btn"
+                    onClick={() => {
+                      setTempFromDate('');
+                      setTempToDate('');
+                      setTempFromTime('');
+                      setTempToTime('');
+                      applyFilters({ date: 'all', from: '', to: '', fromTime: '', toTime: '' });
+                      setShowCustomDate(false);
+                    }}
+                  >
+                    Reset
+                  </button>
+                  <button
+                    type="button"
+                    className="dash-primary orders-custom-apply-btn"
+                    disabled={!tempFromDate && !tempToDate}
+                    onClick={() => {
+                      applyFilters({
+                        date: 'custom',
+                        from: tempFromDate,
+                        to: tempToDate,
+                        fromTime: tempFromTime,
+                        toTime: tempToTime,
+                      });
+                      setShowCustomDate(false);
+                    }}
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
 
-        <label className="orders-account">
-          <Icon><path d="M12 3 4 7l8 4 8-4-8-4Z" /><path d="m4 12 8 4 8-4" /><path d="m4 17 8 4 8-4" /></Icon>
-          <TypeSelect
-            label="Account"
-            value={accountFilter || 'all'}
-            options={[{ id: 'all', label: 'All Accounts' }, ...accounts.map((account) => ({ id: account.id, label: account.name }))]}
-            onChange={(next) => applyFilters({ account: next })}
-          />
-        </label>
+        <div className="orders-filters-right">
+          <label className="orders-account">
+            <Icon><path d="M12 3 4 7l8 4 8-4-8-4Z" /><path d="m4 12 8 4 8-4" /><path d="m4 17 8 4 8-4" /></Icon>
+            <TypeSelect
+              label="Account"
+              value={accountFilter || 'all'}
+              options={[{ id: 'all', label: 'All Accounts' }, ...accounts.map((account) => ({ id: account.id, label: account.name }))]}
+              onChange={(next) => applyFilters({ account: next })}
+            />
+          </label>
 
-        <form className="orders-search" onSubmit={(event) => { event.preventDefault(); setSearching(true); applyFilters({ q: query.trim() }); }}>
-          <span className="orders-search-field">
-            <Icon><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4" /></Icon>
-            <input name="q" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search posting #, SKU, title..." aria-label="Search orders" />
-            {query ? (
-              <button type="button" className="orders-clear" aria-label="Clear search" onClick={() => { setQuery(''); applyFilters({ q: '' }); }}>×</button>
-            ) : null}
-          </span>
-          <button type="submit" className="dash-primary" disabled={searching}>
-            {searching ? null : <Icon><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4" /></Icon>}
-            {searching ? 'Searching...' : 'Search'}
+          <form className="orders-search" onSubmit={(event) => { event.preventDefault(); setSearching(true); applyFilters({ q: query.trim() }); }}>
+            <span className="orders-search-field">
+              <Icon><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4" /></Icon>
+              <input name="q" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search..." aria-label="Search orders" />
+              {query ? (
+                <button type="button" className="orders-clear" aria-label="Clear search" onClick={() => { setQuery(''); applyFilters({ q: '' }); }}>×</button>
+              ) : null}
+            </span>
+            <button type="submit" className={`dash-primary orders-search-btn${searching ? ' is-busy' : ''}`} disabled={searching} aria-label="Search" title="Search">
+              <Icon><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4" /></Icon>
+            </button>
+          </form>
+          <button type="button" className="dash-outline" onClick={exportSelectedExcel} disabled={excelBusy || (selectedIds.size === 0 && scroll.loaded.length === 0)}>
+            <Icon><path d="M12 4v10" /><path d="m8 10 4 4 4-4" /><path d="M5 19h14" /></Icon>
+            {excelBusy ? 'Building Excel...' : 'Export Excel'}
           </button>
-        </form>
-        <button type="button" className="dash-outline" onClick={exportSelectedExcel} disabled={excelBusy || (selectedIds.size === 0 && scroll.loaded.length === 0)}>
-          <Icon><path d="M12 4v10" /><path d="m8 10 4 4 4-4" /><path d="M5 19h14" /></Icon>
-          {excelBusy ? 'Building Excel...' : 'Export Excel'}
-        </button>
+        </div>
       </div>
 
       <div className="orders-meta">
         <p>
           <strong className="orders-count">{`${scroll.total.toLocaleString('en-US')} ${scroll.total === 1 ? 'order' : 'orders'}`}</strong>
           {statusFilter && statusFilter !== 'ALL' ? <button type="button" className="orders-chip" onClick={() => applyFilters({ status: 'ALL' })}>Status: {STATUS_LABEL[statusFilter] || statusFilter} ×</button> : null}
-          {dateFilter && dateFilter !== 'all' ? <button type="button" className="orders-chip" onClick={() => applyFilters({ date: 'all' })}>Date: {DATE_FILTERS.find((item) => item.key === dateFilter)?.label || dateFilter} ×</button> : null}
+          {dateFilter && dateFilter !== 'all' ? (
+            <button type="button" className="orders-chip" onClick={() => applyFilters({ date: 'all' })}>
+              Date: {dateFilter === 'custom'
+                ? `${fromDate || 'Start'}${fromTime ? ' ' + fromTime : ''} → ${toDate || 'End'}${toTime ? ' ' + toTime : ''}`
+                : DATE_FILTERS.find((item) => item.key === dateFilter)?.label || dateFilter} ×
+            </button>
+          ) : null}
           {accountFilter && accountFilter !== 'all' ? <button type="button" className="orders-chip" onClick={() => applyFilters({ account: 'all' })}>Account: {accounts.find((account) => account.id === accountFilter)?.name || 'Account'} ×</button> : null}
           {searchFilter ? <button type="button" className="orders-chip" onClick={() => { setQuery(''); applyFilters({ q: '' }); }}>Search: {searchFilter} ×</button> : null}
           {pdfError ? <span className="orders-note is-bad" role="alert">{pdfError}</span> : null}
           {statusNote ? <span className="orders-note is-ok" role="status">{statusNote}</span> : null}
         </p>
         <div className="orders-bulk">
-          <label className="orders-selected">
-            <input type="checkbox" aria-label="Select orders on this page" checked={visibleOrders.length > 0 && visibleOrders.every((order) => selectedIds.has(order.id))} onChange={toggleAll} />
+          <span className="orders-selected">
             {selectedIds.size} selected
-          </label>
+          </span>
           <select defaultValue="" aria-label="Change selected orders on Ozon" disabled={statusBusy || selectedIds.size === 0} onChange={(event) => { const value = event.target.value; event.target.value = ''; openStatusChange([...selectedIds], value); }}>
             <option value="">{statusBusy ? 'Updating...' : 'Change on Ozon'}</option>
             {['awaiting_deliver', 'delivering', 'delivered', 'cancelled'].map((status) => (
               <option key={status} value={status}>{TARGET_LABEL[status]}</option>
             ))}
           </select>
-          {selectedIds.size > 0 && (
-            <>
-              <button type="button" className="dash-outline" onClick={exportSelectedPdf} disabled={pdfBusy || Boolean(docBusy)}>{pdfBusy ? 'Building PDF...' : 'Export PDF'}</button>
-              <button type="button" className="dash-outline" onClick={() => downloadOzonDocument('shipping')} disabled={Boolean(docBusy) || !visibleOrders.some((order) => selectedIds.has(order.id) && waitingForPickup(order))}>{docBusy === 'shipping' ? 'Downloading...' : 'Ozon labels'}</button>
-              <button type="button" className="dash-outline" onClick={() => downloadOzonDocument('product')} disabled={Boolean(docBusy)}>{docBusy === 'product' ? 'Downloading...' : 'Ozon product list'}</button>
-            </>
-          )}
-          <button type="button" className="dash-outline orders-refresh" onClick={() => router.refresh()}>
+          <button type="button" className="dash-outline" onClick={exportSelectedPdf} disabled={selectedIds.size === 0 || pdfBusy || Boolean(docBusy)}>{pdfBusy ? 'Building PDF...' : 'Export PDF'}</button>
+          <button type="button" className="dash-outline" onClick={() => downloadOzonDocument('product')} disabled={selectedIds.size === 0 || Boolean(docBusy)}>{docBusy === 'product' ? 'Downloading...' : 'Ozon product list'}</button>
+          <button type="button" className={`dash-outline orders-refresh${refreshing ? ' is-busy' : ''}`} onClick={handleRefresh} disabled={refreshing}>
             <Icon><path d="M20 12a8 8 0 1 1-2.2-5.5" /><path d="M20 4v5h-5" /></Icon>
-            Refresh
+            {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
           {(statusFilter && statusFilter !== 'ALL') || (accountFilter && accountFilter !== 'all') || (dateFilter && dateFilter !== 'all') || searchFilter ? (
             <button type="button" className="dash-outline orders-clear-filters" onClick={clearFilters}>
@@ -725,12 +872,7 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
                     <div className="orders-status">
                       <div>
                         <StatusBadge status={order.status} />
-                        {nextTargets(order).length > 0 && (
-                          <select defaultValue="" disabled={statusBusy} aria-label={`Change ${order.posting_number} on Ozon`} onChange={(event) => { const value = event.target.value; event.target.value = ''; openStatusChange([order.id], value); }}>
-                            <option value="">{statusBusy ? 'Updating...' : 'Change on Ozon'}</option>
-                            {nextTargets(order).map((status) => <option key={status} value={status}>{TARGET_LABEL[status]}</option>)}
-                          </select>
-                        )}
+                        
                       </div>
                       <span className="orders-age">{age} Days Old</span>
                     </div>
