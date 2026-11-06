@@ -1,8 +1,20 @@
 'use client';
 
-import Link from 'next/link';
 import ListPager from '../components/ListPager';
 import { FETCH_SIZE, UI_BATCH, useBatchScroll } from '../hooks/useBatchScroll';
+
+function fmtDate(dateStr) {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 export default function ReportsClient({ initialReports, total }) {
   const scroll = useBatchScroll({
@@ -45,7 +57,7 @@ export default function ReportsClient({ initialReports, total }) {
               <tr><td colSpan="5" className="empty-cell">No reports yet. Finish a pipeline run to create one.</td></tr>
             ) : scroll.items.map((report) => (
               <tr key={report.id}>
-                <td>{new Date(report.createdAt).toLocaleString()}</td>
+                <td suppressHydrationWarning>{fmtDate(report.createdAt)}</td>
                 <td>{report.accountName}</td>
                 <td>{report.ordersProcessed}</td>
                 <td><span className={`badge ${report.status === 'success' ? 'badge-success' : report.status === 'failed' ? 'badge-error' : 'badge-info'}`}>{report.status || 'saved'}</span></td>
@@ -54,7 +66,6 @@ export default function ReportsClient({ initialReports, total }) {
                   {report.excelUrl ? <a className="file-link" href={`/api/download?file=${report.excelUrl.replace(/^\//, '')}`}>Download Excel</a> : null}
                   {report.filesMissing ? <span className="muted">Files were on the server disk and are gone after a deploy. Run the pipeline again to keep a copy.</span> : null}
                   {!report.pdfUrl && !report.excelUrl && !report.filesMissing && '—'}
-                  <Link className="file-link" href="/logs">View logs</Link>
                 </td>
               </tr>
             ))}

@@ -17,7 +17,6 @@ export default async function LogsPage() {
       <div>
         <header className="page-head">
           <h1>Logs</h1>
-          <p className="page-lead">Saved logs from pipeline runs.</p>
         </header>
         <p className="notice notice-error" role="alert">{loadError}</p>
       </div>
@@ -28,7 +27,6 @@ export default async function LogsPage() {
     <div>
       <header className="page-head">
         <h1>Logs</h1>
-        <p className="page-lead">Saved logs from pipeline runs.</p>
       </header>
       <LogsClient initialRuns={data.runs} total={data.total} />
     </div>

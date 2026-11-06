@@ -12,7 +12,6 @@ export default async function ReportsPage() {
       <div>
         <header className="page-head">
           <h1>Reports</h1>
-          <p className="page-lead">PDFs and Excel files from finished pipeline runs. Live logs are on the Pipeline page.</p>
         </header>
         <ReportsClient initialReports={toPlain(data.reports) || []} total={Number(data.total) || 0} />
       </div>
