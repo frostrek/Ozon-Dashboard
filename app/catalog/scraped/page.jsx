@@ -10,6 +10,7 @@ export default async function ScrapedProductsPage({ searchParams }) {
     brand: String(searchParams?.brand || 'all'),
     status: String(searchParams?.status || 'all'),
     date: String(searchParams?.date || 'all'),
+    maxWeight: String(searchParams?.maxWeight || 'all'),
   };
   const data = await listScrapedProducts({ ...filters, page: 1, pageSize: 100 });
 
@@ -17,10 +18,14 @@ export default async function ScrapedProductsPage({ searchParams }) {
     <div className="catalog-page">
       <header className="catalog-hero">
         <div>
-          <h1>Catalog</h1>
-          <p>Every product saved from a catalog scrape. The newest scrape is first.</p>
+          <h1>Product Scraping</h1>
         </div>
-        <Link className="dash-primary catalog-new" href="/catalog/new">New run</Link>
+        <Link className="dash-primary catalog-new" href="/catalog/new">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          <span>New run</span>
+        </Link>
       </header>
       <nav className="catalog-tabs" aria-label="Catalog sections">
         <Link href="/catalog">Runs</Link>
@@ -35,6 +40,7 @@ export default async function ScrapedProductsPage({ searchParams }) {
         brand={filters.brand}
         status={filters.status}
         date={filters.date}
+        maxWeight={filters.maxWeight}
       />
     </div>
   );

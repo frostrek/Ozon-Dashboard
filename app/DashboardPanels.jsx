@@ -5,8 +5,8 @@ import Link from 'next/link';
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 const LINES = [
-  { key: 'pack', name: 'Ready to pack', color: '#2563EB' },
-  { key: 'pickup', name: 'Waiting for pickup', color: '#60A5FA' },
+  { key: 'pack', name: 'Ready to pack', color: '#10756F' },
+  { key: 'pickup', name: 'Waiting for pickup', color: '#0EA5E9' },
   { key: 'transit', name: 'On the way', color: '#8B5CF6' },
   { key: 'delivered', name: 'Delivered', color: '#10B981' },
 ];
@@ -45,7 +45,6 @@ export default function DashboardPanels({ accounts, series, recent, todayMoney, 
         <div className="dash-panel-head">
           <div>
             <h2>Accounts</h2>
-            <p>Connection is whether the seller account is active. Pipeline is the last run.</p>
           </div>
         </div>
         <div className="dash-table-wrap">
@@ -76,10 +75,10 @@ export default function DashboardPanels({ accounts, series, recent, todayMoney, 
                         {account.active ? 'Active' : 'Inactive'}
                       </span>
                     </td>
-                    <td><Link className="dash-count" href={`/orders?account=${account.id}&status=AWAITING_PACKAGING`}>{account.counts.AWAITING_PACKAGING}</Link></td>
-                    <td><Link className="dash-count dash-count-blue" href={`/orders?account=${account.id}&status=AWAITING_DELIVERY`}>{account.counts.AWAITING_DELIVERY}</Link></td>
-                    <td><Link className="dash-count dash-count-violet" href={`/orders?account=${account.id}&status=IN_TRANSIT`}>{account.counts.IN_TRANSIT}</Link></td>
-                    <td><Link className="dash-count dash-count-green" href={`/orders?account=${account.id}&status=DELIVERED`}>{account.counts.DELIVERED}</Link></td>
+                    <td><Link className={`dash-count ${account.counts.AWAITING_PACKAGING === 0 ? 'dash-count-zero' : ''}`} href={`/orders?account=${account.id}&status=AWAITING_PACKAGING`}>{account.counts.AWAITING_PACKAGING}</Link></td>
+                    <td><Link className={`dash-count dash-count-blue ${account.counts.AWAITING_DELIVERY === 0 ? 'dash-count-zero' : ''}`} href={`/orders?account=${account.id}&status=AWAITING_DELIVERY`}>{account.counts.AWAITING_DELIVERY}</Link></td>
+                    <td><Link className={`dash-count dash-count-violet ${account.counts.IN_TRANSIT === 0 ? 'dash-count-zero' : ''}`} href={`/orders?account=${account.id}&status=IN_TRANSIT`}>{account.counts.IN_TRANSIT}</Link></td>
+                    <td><Link className={`dash-count dash-count-green ${account.counts.DELIVERED === 0 ? 'dash-count-zero' : ''}`} href={`/orders?account=${account.id}&status=DELIVERED`}>{account.counts.DELIVERED}</Link></td>
                     <td>
                       <span className={runClass(account.runStatus)}>{account.runText}</span>
                     </td>
@@ -111,7 +110,6 @@ export default function DashboardPanels({ accounts, series, recent, todayMoney, 
           <div className="dash-panel-head">
             <div>
               <h2>Fulfillment trends</h2>
-              <p>Orders saved in each stage, by the day they were created.</p>
             </div>
             <div className="dash-range" role="group" aria-label="Chart period">
               {[7, 14].map((value) => (

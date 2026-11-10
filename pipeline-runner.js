@@ -19,8 +19,8 @@ const ORDER_PICTURE_STATUSES = [
     { status: 'acceptance_in_progress', label: 'Being accepted', detail: 'Ozon is still accepting the shipment.' },
     { status: 'awaiting_deliver', label: 'Waiting for pickup', detail: 'Already packed. This run leaves them alone.' },
     { status: 'delivering', label: 'On the way', detail: 'Already with the courier.' },
-    { status: 'delivered', label: 'Delivered', detail: 'Completed in this 30-day window.' },
-    { status: 'cancelled', label: 'Cancelled', detail: 'Cancelled in this 30-day window.' },
+    { status: 'delivered', label: 'Delivered', detail: 'Completed in this date range.' },
+    { status: 'cancelled', label: 'Cancelled', detail: 'Cancelled in this date range.' },
 ];
 
 function orderWindow() {
@@ -53,6 +53,12 @@ function describeOrderPicture(accountName, rows, windowLabel = 'the last 30 days
     return `${accountName} has ${ready.count} ${noun} ready to pack. This run will process those. ${also}`;
 }
 
+function getWindowDays(range) {
+    if (!range || !range.since || !range.to) return 30;
+    const diffMs = range.to.getTime() - range.since.getTime();
+    return Math.max(1, Math.round(diffMs / (24 * 60 * 60 * 1000)));
+}
+
 async function buildOrderPicture(account, readyCount, statusCounts = {}) {
     const range = orderWindow();
     const rows = [];
@@ -65,10 +71,12 @@ async function buildOrderPicture(account, readyCount, statusCounts = {}) {
     }
 
     const summary = describeOrderPicture(account.name, rows, range.label);
+    const windowDays = getWindowDays(range);
 
     return {
         account: account.name,
-        days: 30,
+        days: windowDays,
+        windowLabel: range.label,
         rows,
         summary,
     };

@@ -73,6 +73,9 @@ model Product {
   @@index([sku])
   @@index([brand])
   @@index([category_name])
+  @@index([account_id, status, ozon_created_at(sort: Desc)])
+  @@index([status, stock])
+  @@index([ozon_created_at(sort: Desc)])
 }
 
 // ─── EXISTING TABLES (mirrors exact SQLite schema — DO NOT ALTER) ─────────────
@@ -410,7 +413,12 @@ model Order {
   updated_at        DateTime @updatedAt
   account           Account  @relation(fields: [account_id], references: [id], onDelete: Cascade)
   statusHistory     OrderStatusHistory[]
+
   @@unique([account_id, posting_number])
+  @@index([status, created_at(sort: Desc)])
+  @@index([account_id, status])
+  @@index([created_at(sort: Desc)])
+  @@index([updated_at(sort: Desc)])
 }
 
 model OrderStatusHistory {
@@ -430,6 +438,10 @@ model Report {
   status           String
   created_at       DateTime @default(now())
   account          Account  @relation(fields: [account_id], references: [id], onDelete: Cascade)
+
+  @@index([account_id, created_at(sort: Desc)])
+  @@index([created_at(sort: Desc)])
+  @@index([status])
 }
 
 model PipelineRun {
@@ -447,6 +459,10 @@ model PipelineRun {
   log_excerpt      String?
   cancelled        Boolean   @default(false)
   account          Account?  @relation(fields: [account_id], references: [id], onDelete: Cascade)
+
+  @@index([account_id, start_time(sort: Desc)])
+  @@index([start_time(sort: Desc)])
+  @@index([status])
 }
 
 model AuditLog {

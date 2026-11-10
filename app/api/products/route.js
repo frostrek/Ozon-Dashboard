@@ -11,12 +11,19 @@ export async function GET(request) {
   const account = url.searchParams.get('account') || 'all';
   const list = url.searchParams.get('list') || 'all';
   const q = url.searchParams.get('q') || '';
+  const includeCounts = url.searchParams.get('includeCounts') === 'true';
+
   try {
-    const [data, counts] = await Promise.all([
-      listProductsPage({ page, pageSize, tab, account, list, q }),
-      productTabCounts(account),
-    ]);
-    return NextResponse.json({ ...data, counts });
+    if (includeCounts) {
+      const [data, counts] = await Promise.all([
+        listProductsPage({ page, pageSize, tab, account, list, q }),
+        productTabCounts(account),
+      ]);
+      return NextResponse.json({ ...data, counts });
+    }
+
+    const data = await listProductsPage({ page, pageSize, tab, account, list, q });
+    return NextResponse.json(data);
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Products could not be loaded.' }, { status: 500 });
   }

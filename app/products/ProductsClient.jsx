@@ -5,9 +5,11 @@ import { useRouter } from 'next/navigation';
 import { replaceQuery } from '../lib/replaceQuery';
 import ListPager from '../components/ListPager';
 import TypeSelect from '../components/TypeSelect';
-import AddProductForm from './AddProductForm';
-import BulkUpload from './BulkUpload';
-import ImportReport from './ImportReport';
+import dynamic from 'next/dynamic';
+
+const AddProductForm = dynamic(() => import('./AddProductForm'), { ssr: false });
+const BulkUpload = dynamic(() => import('./BulkUpload'), { ssr: false });
+const ImportReport = dynamic(() => import('./ImportReport'), { ssr: false });
 
 const TABS = [
   { id: 'ALL', label: 'All' },
@@ -20,7 +22,7 @@ const TABS = [
   { id: 'OUT_OF_STOCK', label: 'Out of stock' },
 ];
 
-const FETCH_SIZE = 100;
+const FETCH_SIZE = 25;
 const UI_BATCH = 10;
 
 function parseJson(value, fallback) {
@@ -64,10 +66,11 @@ function fmtDate(value) {
 }
 
 function statusTone(product) {
-  const label = String(product.status_name || '');
-  if (product.status === 'ERROR' || /error|ошиб/i.test(label)) return 'bad';
-  if (/improv|улучш/i.test(label)) return 'warn';
-  if (product.status === 'ACTIVE' || /прода/i.test(label)) return 'ok';
+  const label = String(product.status_name || '').toLowerCase();
+  const status = String(product.status || '').toUpperCase();
+  if (status === 'ERROR' || /error|ошиб|reject|отклон/i.test(label)) return 'bad';
+  if (/improv|улучш|warn|moder|модер/i.test(label)) return 'warn';
+  if (status === 'ACTIVE' || /прода|for sale|selling|ready/i.test(label)) return 'ok';
   return 'muted';
 }
 
@@ -118,7 +121,122 @@ function ProductImage({ product }) {
   const src = firstImage(product);
   const [failed, setFailed] = useState(false);
   if (!src || failed) return <span className="prod-photo prod-photo-empty">No image</span>;
-  return <img className="prod-photo" src={src} alt="" onError={() => setFailed(true)} />;
+  return (
+    <img
+      className="prod-photo"
+      src={src}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+
+function ProductStatusCollapsible({ product }) {
+  const [open, setOpen] = useState(false);
+  const statusName = String(product.status_name || product.status || '—').trim();
+  const tone = statusTone(product);
+
+  const isLong = statusName.length > 20 || /cannot be sent|missing/i.test(statusName);
+
+  let shortLabel = statusName;
+  if (isLong) {
+    if (/cannot be sent/i.test(statusName)) shortLabel = 'Cannot be sent';
+    else if (/error/i.test(statusName)) shortLabel = 'Error';
+    else if (/reject/i.test(statusName)) shortLabel = 'Rejected';
+    else if (/missing/i.test(statusName)) shortLabel = 'Missing data';
+    else if (/moder/i.test(statusName)) shortLabel = 'Moderation';
+    else shortLabel = statusName.slice(0, 16).trim() + '...';
+  }
+
+  if (!isLong) {
+    return (
+      <span className={`prod-status is-${tone}`} title={statusName}>
+        {statusName}
+      </span>
+    );
+  }
+
+  return (
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        type="button"
+        className={`prod-status is-${tone} is-collapsible`}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((prev) => !prev);
+        }}
+        title="Click to view or collapse status details"
+        aria-expanded={open}
+        style={{
+          border: 'none',
+          cursor: 'pointer',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '4px',
+          padding: '3px 8px',
+          fontSize: '11.5px',
+          whiteSpace: 'nowrap',
+          maxWidth: '160px',
+        }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {shortLabel}
+        </span>
+        <span style={{ fontSize: '9px', opacity: 0.8, transition: 'transform 0.15s ease', transform: open ? 'rotate(180deg)' : 'none' }}>
+          ▼
+        </span>
+      </button>
+
+      {open && (
+        <div
+          className="prod-status-popover"
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 5px)',
+            left: 0,
+            zIndex: 99,
+            width: '260px',
+            background: '#FFFFFF',
+            border: tone === 'bad' ? '1px solid #FECACA' : '1px solid #E2E8F0',
+            borderRadius: '8px',
+            padding: '10px 12px',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.14)',
+            fontSize: '12px',
+            lineHeight: 1.45,
+            textAlign: 'left',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px', borderBottom: '1px solid #F1F5F9', paddingBottom: '4px' }}>
+            <span style={{ fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', color: tone === 'bad' ? '#B91C1C' : '#92400E' }}>
+              Status Details
+            </span>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#94A3B8',
+                cursor: 'pointer',
+                fontSize: '15px',
+                padding: '0 4px',
+                lineHeight: 1,
+              }}
+            >
+              ×
+            </button>
+          </div>
+          <p style={{ margin: 0, color: '#334155', wordBreak: 'break-word', whiteSpace: 'normal', fontSize: '12px' }}>
+            {statusName}
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function DetailDrawer({ product, onClose, onDelete, onAddVariant }) {
@@ -189,12 +307,14 @@ function DetailDrawer({ product, onClose, onDelete, onAddVariant }) {
           {drawerTab === 'INFO' ? (
             <>
               <div className="prod-drawer-actions">
-                <a className="dash-outline" href={`/products/${product.id}/edit`}>Edit listing</a>
-                <button type="button" className="dash-primary" onClick={handlePush} disabled={isPushing || isSyncing}>
-                  {isPushing ? 'Sending...' : 'Add to Ozon'}
-                </button>
-                <button type="button" className="dash-outline" onClick={handleSync} disabled={isSyncing || isPushing}>
-                  {isSyncing ? 'Starting...' : 'Sync from Ozon'}
+                <a className="dash-primary prod-action-primary" href={`/products/${product.id}/edit`}>
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                  </svg>
+                  <span>Edit listing</span>
+                </a>
+                <button type="button" className="dash-outline" onClick={handlePush} disabled={isPushing || isSyncing}>
+                  {isPushing ? 'Sending...' : (product.ozon_id ? 'Update on Ozon' : 'Add to Ozon')}
                 </button>
                 <button
                   type="button"
@@ -204,7 +324,12 @@ function DetailDrawer({ product, onClose, onDelete, onAddVariant }) {
                 >
                   + Add Variant
                 </button>
-                <button type="button" className="prod-delete" onClick={() => onDelete(product)}>Delete</button>
+                <button type="button" className="dash-outline prod-delete-btn" onClick={() => onDelete(product)}>
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                  <span>Delete</span>
+                </button>
               </div>
               {syncMessage && <p className="notice notice-warn">{syncMessage}</p>}
               <p className="prod-kicker">Images ({Array.isArray(images) ? images.length : 0})</p>
@@ -265,6 +390,7 @@ export default function ProductsClient({
   const loadingRef = useRef(false);
   const requestId = useRef(0);
   const tableWrapRef = useRef(null);
+  const tabCacheRef = useRef(new Map());
   const latestRef = useRef({});
   const router = useRouter();
   const [notice, setNotice] = useState('');
@@ -277,6 +403,176 @@ export default function ProductsClient({
   const [removeTarget, setRemoveTarget] = useState(null);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState('');
+  const [editingCell, setEditingCell] = useState(null);
+  const [isQuickSaving, setIsQuickSaving] = useState(false);
+  const [quickFeedback, setQuickFeedback] = useState(null);
+
+  useEffect(() => {
+    if (!quickFeedback) return;
+    const t = setTimeout(() => setQuickFeedback(null), 4000);
+    return () => clearTimeout(t);
+  }, [quickFeedback]);
+
+  function startEditing(p, field) {
+    setEditingCell({
+      id: p.id,
+      field,
+      value: field === 'price' ? (p.price != null ? String(p.price) : '') : (p.stock != null ? String(p.stock) : '0'),
+    });
+  }
+
+  async function saveEditing(p) {
+    if (!editingCell || isQuickSaving) return;
+    setIsQuickSaving(true);
+    try {
+      const payload = editingCell.field === 'price'
+        ? { price: parseFloat(editingCell.value) || 0 }
+        : { stock: parseInt(editingCell.value, 10) || 0 };
+
+      const res = await fetch(`/api/products/${p.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to update');
+
+      setFetched((prev) =>
+        prev.map((item) => (item.id === p.id ? { ...item, ...payload } : item))
+      );
+
+      setQuickFeedback({
+        message: `✓ Updated ${editingCell.field === 'price' ? 'Price' : 'Stock'} for ${p.sku || p.name}`,
+        type: 'success',
+      });
+      setEditingCell(null);
+    } catch (err) {
+      setQuickFeedback({ message: `Update failed: ${err.message}`, type: 'error' });
+    } finally {
+      setIsQuickSaving(false);
+    }
+  }
+
+  function renderPriceCell(p, isGroup, display) {
+    if (isGroup) {
+      return <td className="prod-price">{display}</td>;
+    }
+    const isEditing = editingCell?.id === p.id && editingCell?.field === 'price';
+    if (isEditing) {
+      return (
+        <td className="prod-price" onClick={(e) => e.stopPropagation()}>
+          <div className="prod-inline-form">
+            <input
+              type="number"
+              step="0.01"
+              autoFocus
+              className="prod-inline-input"
+              value={editingCell.value}
+              onChange={(e) => setEditingCell({ ...editingCell, value: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') saveEditing(p);
+                if (e.key === 'Escape') setEditingCell(null);
+              }}
+            />
+            <button
+              type="button"
+              className="prod-inline-btn is-save"
+              title="Save (Enter)"
+              disabled={isQuickSaving}
+              onClick={() => saveEditing(p)}
+            >
+              ✓
+            </button>
+            <button
+              type="button"
+              className="prod-inline-btn is-cancel"
+              title="Cancel (Esc)"
+              onClick={() => setEditingCell(null)}
+            >
+              ✕
+            </button>
+          </div>
+        </td>
+      );
+    }
+    return (
+      <td className="prod-price">
+        <div className="prod-inline-cell">
+          <span>{display}</span>
+          <button
+            type="button"
+            className="prod-inline-trigger"
+            title="Quick edit price"
+            onClick={() => startEditing(p, 'price')}
+          >
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+            </svg>
+          </button>
+        </div>
+      </td>
+    );
+  }
+
+  function renderStockCell(p, isGroup, display) {
+    if (isGroup) {
+      return <td className="prod-warehouse">{display}</td>;
+    }
+    const isEditing = editingCell?.id === p.id && editingCell?.field === 'stock';
+    if (isEditing) {
+      return (
+        <td className="prod-warehouse" onClick={(e) => e.stopPropagation()}>
+          <div className="prod-inline-form">
+            <input
+              type="number"
+              autoFocus
+              className="prod-inline-input"
+              value={editingCell.value}
+              onChange={(e) => setEditingCell({ ...editingCell, value: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') saveEditing(p);
+                if (e.key === 'Escape') setEditingCell(null);
+              }}
+            />
+            <button
+              type="button"
+              className="prod-inline-btn is-save"
+              title="Save (Enter)"
+              disabled={isQuickSaving}
+              onClick={() => saveEditing(p)}
+            >
+              ✓
+            </button>
+            <button
+              type="button"
+              className="prod-inline-btn is-cancel"
+              title="Cancel (Esc)"
+              onClick={() => setEditingCell(null)}
+            >
+              ✕
+            </button>
+          </div>
+        </td>
+      );
+    }
+    return (
+      <td className="prod-warehouse">
+        <div className="prod-inline-cell">
+          <span>{display}</span>
+          <button
+            type="button"
+            className="prod-inline-trigger"
+            title="Quick edit stock"
+            onClick={() => startEditing(p, 'stock')}
+          >
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+            </svg>
+          </button>
+        </div>
+      </td>
+    );
+  }
 
   latestRef.current = {
     fetched,
@@ -341,7 +637,15 @@ export default function ProductsClient({
       setHasMore(page * FETCH_SIZE < counted && incoming.length > 0);
       setNextPage(page + 1);
       if (data.counts) setCounts(data.counts);
-      if (replace) setCurrentPage(1);
+      if (replace) {
+        setCurrentPage(1);
+        const cacheKey = `${activeTab}|${filterAccount}|${listFilter}|${search.trim().toLowerCase()}`;
+        tabCacheRef.current.set(cacheKey, {
+          products: incoming,
+          total: counted,
+          hasMore: page * FETCH_SIZE < counted && incoming.length > 0,
+        });
+      }
       return incoming;
     } catch (error) {
       if (id !== requestId.current) return null;
@@ -356,11 +660,37 @@ export default function ProductsClient({
   }
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setFetched([]);
+    let cancelled = false;
+    fetch(`/api/products/counts?account=${encodeURIComponent(filterAccount)}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled && data?.counts) {
+          setCounts(data.counts);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [filterAccount]);
+
+  useEffect(() => {
+    const cacheKey = `${activeTab}|${filterAccount}|${listFilter}|${search.trim().toLowerCase()}`;
+    const cached = tabCacheRef.current.get(cacheKey);
+
+    // If previously loaded, switch card INSTANTLY (0ms latency, no blanking)
+    if (cached) {
+      setFetched(cached.products);
+      setTotal(cached.total);
+      setHasMore(cached.hasMore);
       setCurrentPage(1);
-      setHasMore(true);
-      setNextPage(2);
+      setLoadingPage(false);
+      setLoadError('');
+    } else {
+      setLoadingPage(true);
+    }
+
+    const timer = setTimeout(() => {
       setSelection([]);
       replaceQuery('/products', {
         tab: activeTab === 'ALL' ? '' : activeTab,
@@ -524,21 +854,8 @@ export default function ProductsClient({
   return (
     <div className="prod-page">
       <header className="prod-hero">
-        <div>
-          <p className="prod-kicker-page">Products</p>
+        <div className="prod-hero-main">
           <h1>Products</h1>
-          <p>Manage your Ozon catalog, monitor listing quality, and keep product information up to date.</p>
-        </div>
-        <div className="prod-hero-art" aria-hidden="true">
-          <svg viewBox="0 0 180 92">
-            <path d="M8 58c28-18 52-18 80 0s52 18 84 0" fill="none" stroke="#DBEAFE" strokeWidth="10" strokeLinecap="round" />
-            <rect x="28" y="28" width="34" height="26" rx="4" fill="#F8FAFC" stroke="#93C5FD" />
-            <rect x="48" y="18" width="34" height="26" rx="4" fill="#FFFFFF" stroke="#2563EB" />
-            <path d="M118 22h28l10 12v24H118z" fill="#EFF6FF" stroke="#2563EB" />
-            <path d="M124 22v12h22" fill="none" stroke="#2563EB" />
-            <circle cx="128" cy="62" r="3" fill="#2563EB" />
-            <circle cx="148" cy="62" r="3" fill="#2563EB" />
-          </svg>
         </div>
       </header>
       {syncText && <p className="notice notice-warn" role="status">{syncText}</p>}
@@ -625,7 +942,12 @@ export default function ProductsClient({
         )}
       </div>
 
-      {loadingPage && fetched.length === 0 ? <p className="page-lead">Loading products…</p> : null}
+      {loadingPage && fetched.length > 0 && (
+        <div className="orders-loading-topbar">
+          <div className="orders-loading-spinner is-small" />
+          <span>Updating products…</span>
+        </div>
+      )}
       {loadError ? (
         <p className="notice notice-error" role="alert">
           {loadError}{' '}
@@ -655,7 +977,6 @@ export default function ProductsClient({
               <th>Status</th>
               <th>Price</th>
               <th>Warehouse</th>
-              <th>Barcode</th>
               <th>Rating</th>
               <th>Content rating</th>
               <th>Creation date</th>
@@ -663,15 +984,54 @@ export default function ProductsClient({
             </tr>
           </thead>
           <tbody>
-            {empty && (
+            {loadingPage && fetched.length === 0 ? (
+              <>
+                <tr>
+                  <td colSpan="10" style={{ padding: 0 }}>
+                    <div className="orders-loading-banner">
+                      <div className="orders-loading-spinner" />
+                      <div>
+                        <strong>Loading products…</strong>
+                        <span>Fetching products catalog from Ozon</span>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <tr key={`prod-skeleton-${i}`} className="orders-skeleton-row">
+                    <td><div className="orders-skeleton-box" style={{ width: 16, height: 16, borderRadius: 4 }} /></td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div className="orders-skeleton-box" style={{ width: 44, height: 44, borderRadius: 6, flexShrink: 0 }} />
+                        <div style={{ flex: 1 }}>
+                          <div className="orders-skeleton-box" style={{ width: 100, height: 13, borderRadius: 4, marginBottom: 5 }} />
+                          <div className="orders-skeleton-box" style={{ width: 70, height: 11, borderRadius: 4 }} />
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="orders-skeleton-box" style={{ width: '85%', height: 14, borderRadius: 4, marginBottom: 5 }} />
+                      <div className="orders-skeleton-box" style={{ width: '50%', height: 11, borderRadius: 4 }} />
+                    </td>
+                    <td><div className="orders-skeleton-box" style={{ width: 75, height: 22, borderRadius: 999 }} /></td>
+                    <td><div className="orders-skeleton-box" style={{ width: 65, height: 16, borderRadius: 4 }} /></td>
+                    <td><div className="orders-skeleton-box" style={{ width: 70, height: 16, borderRadius: 4 }} /></td>
+                    <td><div className="orders-skeleton-box" style={{ width: 45, height: 16, borderRadius: 4 }} /></td>
+                    <td><div className="orders-skeleton-box" style={{ width: 55, height: 16, borderRadius: 4 }} /></td>
+                    <td><div className="orders-skeleton-box" style={{ width: 75, height: 16, borderRadius: 4 }} /></td>
+                    <td><div className="orders-skeleton-box" style={{ width: 22, height: 22, borderRadius: 4 }} /></td>
+                  </tr>
+                ))}
+              </>
+            ) : empty ? (
               <tr>
-                <td colSpan="11" className="prod-empty">
+                <td colSpan="10" className="prod-empty">
                   <strong>{empty.title}</strong>
                   <p>{empty.text}</p>
                   {empty.action && <button type="button" className="dash-outline" onClick={empty.onClick}>{empty.action}</button>}
                 </td>
               </tr>
-            )}
+            ) : null}
             {pageGroups.map(([groupId, group]) => {
               const main = group[0];
               const isVariantGroup = group.length > 1;
@@ -725,8 +1085,9 @@ export default function ProductsClient({
                         </button>
                         {isVariantGroup && (
                           <span style={{
-                            background: '#E0F2FE',
-                            color: '#0369A1',
+                            background: '#E8F5F4',
+                            color: '#0C5D58',
+                            border: '1px solid #B2E0DC',
                             padding: '1px 6px',
                             borderRadius: '999px',
                             fontSize: '11px',
@@ -749,22 +1110,19 @@ export default function ProductsClient({
                       )}
                     </td>
                     <td>
-                      <span className={`prod-status is-${statusTone(main)}`}>
-                        {main.status_name || main.status || '—'}
-                      </span>
+                      <ProductStatusCollapsible product={main} />
                     </td>
-                    <td className="prod-price">{priceDisplay}</td>
-                    <td className="prod-warehouse">{stockDisplay}</td>
-                    <td className="prod-barcode" title={barcode || ''}>{barcode || '—'}</td>
-                    <td className="prod-num">{main.rating == null ? '—' : main.rating}</td>
-                    <td className="prod-num">{main.content_rating == null ? '—' : main.content_rating}</td>
+                    {renderPriceCell(main, isVariantGroup, priceDisplay)}
+                    {renderStockCell(main, isVariantGroup, stockDisplay)}
+                    <td className="prod-num">{!main.rating ? '—' : main.rating}</td>
+                    <td className="prod-num">{!main.content_rating ? '—' : main.content_rating}</td>
                     <td className="prod-date">{fmtDate(main.ozon_created_at)}</td>
                     <td className="prod-row-actions">
                       <button type="button" className="prod-open" onClick={() => setSelected(main)}>Open</button>
                       <button
                         type="button"
                         className="dash-ghost"
-                        style={{ fontSize: '12px', padding: '2px 6px', color: '#0369A1', fontWeight: 600, background: 'transparent', border: 'none', cursor: 'pointer' }}
+                        style={{ fontSize: '12px', padding: '2px 6px', color: '#10756F', fontWeight: 600, background: 'transparent', border: 'none', cursor: 'pointer' }}
                         title="Add a variant (new weight/size) to this product"
                         onClick={() => {
                           setVariantParent(main);
@@ -777,7 +1135,7 @@ export default function ProductsClient({
                     </td>
                   </tr>
                   {isOpen && group.map((variant) => (
-                    <tr key={variant.id} className="prod-variant" style={{ background: '#F8FAFC' }}>
+                    <tr key={variant.id} className="prod-variant">
                       <td>
                         <input
                           type="checkbox"
@@ -791,7 +1149,7 @@ export default function ProductsClient({
                           <ProductImage product={variant} />
                           <div>
                             <strong>{variant.sku || '—'}</strong>
-                            <span style={{ fontSize: '11px', color: '#64748B' }}>Variant ID {variant.ozon_id || '—'}</span>
+                            <span style={{ fontSize: '11px', color: '#5A7572' }}>Variant ID {variant.ozon_id || '—'}</span>
                           </div>
                         </div>
                       </td>
@@ -801,18 +1159,12 @@ export default function ProductsClient({
                         </button>
                       </td>
                       <td>
-                        <span className={`prod-status is-${statusTone(variant)}`}>
-                          {variant.status_name || variant.status || '—'}
-                        </span>
+                        <ProductStatusCollapsible product={variant} />
                       </td>
-                      <td className="prod-price">{fmtPrice(variant.price, variant.currency)}</td>
-                      <td className="prod-warehouse">
-                        {variant.stock == null ? '—' : `${variant.stock} in stock`}
-                        {variant.reserved_stock ? ` · res ${variant.reserved_stock}` : ''}
-                      </td>
-                      <td className="prod-barcode">{barcodeOf(variant) || '—'}</td>
-                      <td className="prod-num">{variant.rating == null ? '—' : variant.rating}</td>
-                      <td className="prod-num">{variant.content_rating == null ? '—' : variant.content_rating}</td>
+                      {renderPriceCell(variant, false, fmtPrice(variant.price, variant.currency))}
+                      {renderStockCell(variant, false, variant.stock == null ? '—' : `${variant.stock} in stock${variant.reserved_stock ? ` · res ${variant.reserved_stock}` : ''}`)}
+                      <td className="prod-num">{!variant.rating ? '—' : variant.rating}</td>
+                      <td className="prod-num">{!variant.content_rating ? '—' : variant.content_rating}</td>
                       <td className="prod-date">{fmtDate(variant.ozon_created_at)}</td>
                       <td className="prod-row-actions">
                         <button type="button" className="prod-open" onClick={() => setSelected(variant)}>Open</button>
@@ -867,6 +1219,12 @@ export default function ProductsClient({
           </div>
         </div>
       )}
+      {quickFeedback && (
+        <div className={`prod-quick-feedback is-${quickFeedback.type}`} role="status">
+          {quickFeedback.message}
+        </div>
+      )}
+
       {adding && (
         <AddProductForm
           accounts={accounts}

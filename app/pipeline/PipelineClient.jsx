@@ -1,5 +1,30 @@
 'use client';
 
+function getFileMeta(file) {
+  if (file.name === 'final.pdf' || /final.*\.pdf$/i.test(file.name)) {
+    return {
+      label: 'Shipping Labels (PDF)',
+      downloadName: 'Shipping_Labels.pdf',
+      isPdf: true,
+      badgeClass: 'pipe-file-pdf',
+    };
+  }
+  if (file.name === '03_report.xlsx' || /report.*\.xlsx$/i.test(file.name)) {
+    return {
+      label: 'Shipment Report (Excel)',
+      downloadName: 'Shipment_Report.xlsx',
+      isPdf: false,
+      badgeClass: 'pipe-file-excel',
+    };
+  }
+  const isPdf = /\.pdf$/i.test(file.name);
+  return {
+    label: file.name,
+    downloadName: file.name,
+    isPdf,
+    badgeClass: isPdf ? 'pipe-file-pdf' : 'pipe-file-excel',
+  };
+}
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import ListPager from '../components/ListPager';
@@ -130,9 +155,62 @@ export default function PipelineClient({ accounts, initialAccountId }) {
   const [lastRun, setLastRun] = useState(null);
   const [lastSuccess, setLastSuccess] = useState(null);
   const [runningRun, setRunningRun] = useState(null);
-  const [dateFrom, setDateFrom] = useState(() => shiftDay(localDay(), -29));
+  const [dateFrom, setDateFrom] = useState(() => shiftDay(localDay(), -2));
   const [dateTo, setDateTo] = useState(() => localDay());
+  const [preset, setPreset] = useState('3days');
   const [errorRun, setErrorRun] = useState(null);
+  const [downloadingMap, setDownloadingMap] = useState({});
+
+  async function handleFileDownload(e, file, runId) {
+    const isPdf = /\.pdf$/i.test(file.name);
+    if (isPdf) return;
+    e.preventDefault();
+    const key = `${runId}_${file.name}`;
+    if (downloadingMap[key]) return;
+
+    setDownloadingMap((prev) => ({ ...prev, [key]: true }));
+    const meta = getFileMeta(file);
+    try {
+      const res = await fetch(file.url);
+      if (!res.ok) throw new Error(`Download failed (${res.status})`);
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = meta.downloadName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+    } catch (err) {
+      console.error('File download failed:', err);
+      alert(`Could not download ${file.name}. Please try again.`);
+    } finally {
+      setDownloadingMap((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  }
+
+  function applyPreset(type) {
+    setPreset(type);
+    const today = localDay();
+    if (type === 'today') {
+      setDateFrom(today);
+      setDateTo(today);
+    } else if (type === '3days') {
+      setDateFrom(shiftDay(today, -2));
+      setDateTo(today);
+    } else if (type === '7days') {
+      setDateFrom(shiftDay(today, -6));
+      setDateTo(today);
+    } else if (type === '30days') {
+      setDateFrom(shiftDay(today, -29));
+      setDateTo(today);
+    }
+  }
   const [outcome, setOutcome] = useState(null);
   const logRef = useRef(null);
   const sourceRef = useRef(null);
@@ -163,7 +241,7 @@ export default function PipelineClient({ accounts, initialAccountId }) {
     loadPage: async (page) => {
       const params = new URLSearchParams({
         page: String(page),
-        pageSize: String(FETCH_SIZE),
+        pageSize: '15',
       });
       if (accountRef.current) params.set('accountId', accountRef.current);
       const res = await fetch(`/api/pipeline/runs?${params}`, { cache: 'no-store' });
@@ -323,81 +401,116 @@ export default function PipelineClient({ accounts, initialAccountId }) {
   return (
     <div className="pipe-page">
       <header className="pipe-head">
-        <p className="pipe-kicker">Pipeline</p>
         <h1>Order Pipeline</h1>
-        <p>Run order processing, monitor live progress, and review previous runs.</p>
       </header>
 
       <section className="stat-card pipe-control">
-        <div className="pipe-start">
-          <label className="field">
-            <span className="field-label">Select account</span>
-            <TypeSelect
-              label="Account"
-              value={accountId}
-              options={accounts.length === 0 ? [{ id: '', label: 'No accounts yet' }] : accounts.map((account) => ({ id: account.id, label: account.name }))}
-              onChange={setAccountId}
-            />
+        <div className="pipe-start pipe-single-row">
+          {/* Shrunken Account Selector */}
+          <label className="field pipe-account-field">
+            <span className="field-label">Select Account</span>
+            <div className="pipe-account-select-wrap">
+              <svg className="pipe-account-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3 4 7l8 4 8-4-8-4Z" />
+                <path d="m4 12 8 4 8-4" />
+                <path d="m4 17 8 4 8-4" />
+              </svg>
+              <TypeSelect
+                label="Account"
+                value={accountId}
+                options={accounts.length === 0 ? [{ id: '', label: 'No accounts yet' }] : accounts.map((account) => ({ id: account.id, label: account.name }))}
+                onChange={setAccountId}
+              />
+            </div>
           </label>
-          <div className="pipe-range">
-            <span className="field-label">Order date range</span>
-            <span className="field-help">Used when you start the pipeline. Run history below is not filtered by these dates.</span>
-            <div className="pipe-range-btns">
-              {[
-                { id: 'today', label: 'Today', from: localDay(), to: localDay() },
-                { id: '7', label: '7 days', from: shiftDay(localDay(), -6), to: localDay() },
-                { id: '30', label: '30 days', from: shiftDay(localDay(), -29), to: localDay() },
-              ].map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={dateFrom === item.from && dateTo === item.to ? 'pipe-page-btn is-current' : 'pipe-page-btn'}
-                  onClick={() => {
-                    setDateFrom(item.from);
-                    setDateTo(item.to);
-                  }}
-                >
-                  {item.label}
-                </button>
-              ))}
+
+          {/* Quick Range Options right next to FROM */}
+          <div className="field pipe-quick-col">
+            <span className="field-label">Quick Range</span>
+            <div className="pipe-shortcuts" role="group" aria-label="Date range shortcuts">
+              <button
+                type="button"
+                className={`pipe-preset-btn ${preset === 'today' ? 'is-active' : ''}`}
+                onClick={() => applyPreset('today')}
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                className={`pipe-preset-btn ${preset === '3days' ? 'is-active' : ''}`}
+                onClick={() => applyPreset('3days')}
+              >
+                3 Days
+              </button>
+              <button
+                type="button"
+                className={`pipe-preset-btn ${preset === '7days' ? 'is-active' : ''}`}
+                onClick={() => applyPreset('7days')}
+              >
+                7 Days
+              </button>
+              <button
+                type="button"
+                className={`pipe-preset-btn ${preset === '30days' ? 'is-active' : ''}`}
+                onClick={() => applyPreset('30days')}
+              >
+                30 Days
+              </button>
             </div>
           </div>
-          <label className="field" htmlFor="pipeline-from">
-            <span className="field-label">Orders from</span>
-            <input id="pipeline-from" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
-          </label>
-          <label className="field" htmlFor="pipeline-to">
-            <span className="field-label">Orders through</span>
-            <input id="pipeline-to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
-          </label>
-          <button
-            type="button"
-            className="dash-primary pipe-start-btn"
-            onClick={startPipeline}
-            disabled={starting || stopping || !accountId}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
-            {starting ? 'Starting...' : 'Start Pipeline'}
-          </button>
-        </div>
 
-        <div className="pipe-status-line" aria-live="polite">
-          <span>
-            <span className={`pipe-dot ${liveState === 'running' ? 'is-run' : 'is-idle'}`} />
-            Status
-            <strong>{historyState === 'loading' ? 'Checking' : (liveState === 'running' ? 'Running' : 'Idle')}</strong>
-            <em>{liveState === 'running' ? (runningForAccount?.stage || 'In progress') : 'Not running'}</em>
-          </span>
-          <span>
-            Last run
-            <strong>{historyState === 'loading' ? '…' : (lastRun ? statusLabel(lastRun.status, lastRun.cancelled) : '—')}</strong>
-            <em>{lastRun ? formatWhen(lastRun.start_time) : 'No runs yet'}</em>
-          </span>
-          <span>
-            Last sync
-            <strong>{historyState === 'loading' ? '…' : (lastSuccess ? 'Success' : '—')}</strong>
-            <em>{lastSuccess ? formatWhen(lastSuccess.end_time || lastSuccess.start_time) : 'Never synced'}</em>
-          </span>
+          {/* FROM Date */}
+          <label className="field pipe-date-field" htmlFor="pipeline-from">
+            <span className="field-label">FROM</span>
+            <input
+              id="pipeline-from"
+              type="date"
+              value={dateFrom}
+              onChange={(event) => {
+                setDateFrom(event.target.value);
+                setPreset('custom');
+              }}
+            />
+          </label>
+
+          {/* TO Date */}
+          <label className="field pipe-date-field" htmlFor="pipeline-to">
+            <span className="field-label">TO</span>
+            <input
+              id="pipeline-to"
+              type="date"
+              value={dateTo}
+              onChange={(event) => {
+                setDateTo(event.target.value);
+                setPreset('custom');
+              }}
+            />
+          </label>
+
+          {/* Start/Stop Button */}
+          <div className="pipe-action-inline">
+            {liveState === 'running' && stopRunId ? (
+              <button
+                type="button"
+                className="dash-outline pipe-stop-btn"
+                onClick={() => stopPipeline(stopRunId)}
+                disabled={stopping}
+                style={{ borderColor: '#ef4444', color: '#ef4444' }}
+              >
+                {stopping ? 'Stopping...' : 'Stop Pipeline'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="dash-primary pipe-start-btn"
+                onClick={startPipeline}
+                disabled={starting || stopping || !accountId}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" className="pipe-btn-play"><polygon points="6,4 20,12 6,20" /></svg>
+                <span>{starting ? 'Starting...' : 'Start Pipeline'}</span>
+              </button>
+            )}
+          </div>
         </div>
       </section>
 
@@ -405,8 +518,19 @@ export default function PipelineClient({ accounts, initialAccountId }) {
 
       {orderPicture && (
         <section className="stat-card order-picture" aria-live="polite">
-          <h2 className="section-title">Orders in the last {orderPicture.days} days</h2>
-          <p className="page-lead">{orderPicture.account}</p>
+          <div className="order-picture-head">
+            <h2 className="section-title">
+              Order Snapshot · {(() => {
+                if (preset === 'today') return 'Today';
+                if (preset === '3days') return 'Last 3 Days';
+                if (preset === '7days') return 'Last 7 Days';
+                if (preset === '30days') return 'Last 30 Days';
+                if (orderPicture?.days) return `Last ${orderPicture.days} Day${orderPicture.days === 1 ? '' : 's'}`;
+                return 'Selected Window';
+              })()}
+            </h2>
+            <span className="order-picture-store">{orderPicture.account}</span>
+          </div>
           <div className="metric-grid order-picture-grid">
             {orderPicture.rows.map((row) => (
               <article
@@ -419,87 +543,33 @@ export default function PipelineClient({ accounts, initialAccountId }) {
               </article>
             ))}
           </div>
-          <p className="order-picture-summary">{orderPicture.summary}</p>
         </section>
       )}
 
-      <section className="stat-card pipe-live">
-        <div className="pipe-live-head">
-          <div>
-            <h2>Live Run</h2>
-            <span className={liveState === 'running' ? 'pipe-badge pipe-badge-run' : 'pipe-badge pipe-badge-muted'}>
-              {liveState === 'running' ? 'Running' : 'Idle'}
-            </span>
-          </div>
-          <Link href="/logs">View all logs</Link>
-        </div>
-        <div className="pipe-live-grid">
-          <div className="pipe-term">
-            <div className="pipe-term-bar">
-              <span>Live logs{liveState === 'running' ? ' · streaming' : ''}</span>
-              <button type="button" className="pipe-term-btn" onClick={copyLogs} disabled={!logs}>
-                {copied ? 'Copied' : 'Copy'}
-              </button>
-            </div>
-            <div ref={logRef} className="pipe-term-body" role="log" aria-live="polite">
-              {logLines.length === 0 && <p className="pipe-term-empty">Logs appear here after you start a pipeline.</p>}
-              {logLines.map((line, index) => {
-                const entry = parseLogLine(line);
-                return (
-                  <p key={`${index}-${entry.text.slice(0, 24)}`} className={`pipe-line is-${entry.level}`}>
-                    {entry.time && <time>{entry.time}</time>}
-                    <span className="pipe-level">{entry.level === 'plain' ? '' : entry.level}</span>
-                    <span>{entry.text}</span>
-                  </p>
-                );
-              })}
-            </div>
-          </div>
 
-          <aside className="pipe-side">
-            {liveState === 'running' ? (
-              <>
-                <h3>Pipeline in progress</h3>
-                <p>Running for {selected?.name || 'the selected account'}.</p>
-                <dl>
-                  <div><dt>Started</dt><dd>{runningForAccount ? formatWhen(runningForAccount.start_time) : '—'}</dd></div>
-                  <div><dt>Stage</dt><dd>{runningForAccount?.stage || '—'}</dd></div>
-                  <div><dt>Status</dt><dd>Running</dd></div>
-                </dl>
-                {stopRunId && (
-                  <button type="button" className="pipe-stop" onClick={() => stopPipeline(stopRunId)} disabled={stopping}>
-                    {stopping ? 'Stopping...' : 'Stop pipeline'}
-                  </button>
-                )}
-              </>
-            ) : settled ? (
-              <>
-                <h3>{statusLabel(settled.status, settled.cancelled)}</h3>
-                <p>{settledError || 'This run has finished.'}</p>
-                <dl>
-                  <div><dt>Started</dt><dd>{formatWhen(settled.start_time)}</dd></div>
-                  <div><dt>Finished</dt><dd>{formatWhen(settled.end_time)}</dd></div>
-                  <div><dt>Stage</dt><dd>{settled.stage || '—'}</dd></div>
-                </dl>
-              </>
-            ) : (
-              <>
-                <span className="pipe-side-mark" aria-hidden="true">
-                  <svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg>
-                </span>
-                <h3>No run in progress</h3>
-                <p>Start a pipeline to see live progress here.</p>
-              </>
-            )}
-          </aside>
-        </div>
-      </section>
 
       <section className="stat-card pipe-history">
         <div className="pipe-live-head">
-          <div>
+          <div className="pipe-title-wrap">
             <h2>Run history</h2>
-            <p>Previous runs for every account.</p>
+          </div>
+          <div className="pipe-status-line" aria-live="polite">
+            <div className="pipe-stat-badge">
+              <span className={`pipe-dot ${liveState === 'running' ? 'is-run' : 'is-idle'}`} />
+              <span className="pipe-stat-label">Status:</span>
+              <strong className="pipe-stat-val">{historyState === 'loading' ? 'Checking' : (liveState === 'running' ? 'Running' : 'Idle')}</strong>
+              <span className="pipe-stat-sub">({liveState === 'running' ? (runningForAccount?.stage || 'In progress') : 'Not running'})</span>
+            </div>
+            <div className="pipe-stat-badge">
+              <span className="pipe-stat-label">Last run:</span>
+              <strong className="pipe-stat-val">{historyState === 'loading' ? '…' : (lastRun ? statusLabel(lastRun.status, lastRun.cancelled) : '—')}</strong>
+              <span className="pipe-stat-sub">{lastRun ? formatWhen(lastRun.start_time) : 'No runs yet'}</span>
+            </div>
+            <div className="pipe-stat-badge">
+              <span className="pipe-stat-label">Last sync:</span>
+              <strong className="pipe-stat-val">{historyState === 'loading' ? '…' : (lastSuccess ? 'Success' : '—')}</strong>
+              <span className="pipe-stat-sub">{lastSuccess ? formatWhen(lastSuccess.end_time || lastSuccess.start_time) : 'Never synced'}</span>
+            </div>
           </div>
         </div>
         {historyState === 'error' && <p className="notice notice-error" role="alert">{historyError}</p>}
@@ -539,10 +609,69 @@ export default function PipelineClient({ accounts, initialAccountId }) {
                     <td>{run.duration || '—'}</td>
                     <td>{run.orders_processed == null ? '—' : run.orders_processed}</td>
                     <td>
-                      {(run.files || []).length === 0 && '—'}
-                      {(run.files || []).map((file) => (
-                        <a key={file.name} href={file.url} className="file-link pipe-file" title={file.name}>{file.name}</a>
-                      ))}
+                      {(() => {
+                        const visibleFiles = (run.files || []).filter((file) =>
+                          file.name === 'final.pdf' ||
+                          file.name === '03_report.xlsx' ||
+                          /final/i.test(file.name) ||
+                          /report/i.test(file.name)
+                        );
+                        if (visibleFiles.length === 0) return '—';
+                        return (
+                          <div className="pipe-files-wrap">
+                            {visibleFiles.map((file) => {
+                              const meta = getFileMeta(file);
+                              const fileKey = `${run.id}_${file.name}`;
+                              const isDownloading = Boolean(downloadingMap[fileKey]);
+
+                              if (meta.isPdf) {
+                                return (
+                                  <a
+                                    key={file.name}
+                                    href={file.url}
+                                    className={`file-link pipe-file ${meta.badgeClass}`}
+                                    title="Open Shipping Labels PDF in new tab"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    <svg className="pipe-file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                      <polyline points="14 2 14 8 20 8" />
+                                    </svg>
+                                    <span>{meta.label}</span>
+                                  </a>
+                                );
+                              }
+
+                              return (
+                                <button
+                                  key={file.name}
+                                  type="button"
+                                  className={`file-link pipe-file ${meta.badgeClass} ${isDownloading ? 'is-downloading' : ''}`}
+                                  title={isDownloading ? 'Downloading shipment spreadsheet...' : 'Download Shipment Report Excel'}
+                                  disabled={isDownloading}
+                                  onClick={(e) => handleFileDownload(e, file, run.id)}
+                                >
+                                  {isDownloading ? (
+                                    <>
+                                      <span className="file-link-spinner" aria-hidden="true" />
+                                      <span>Downloading...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <svg className="pipe-file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                        <rect x="3" y="3" width="18" height="18" rx="2" />
+                                        <path d="M3 9h18M3 15h18M9 3v18M15 3v18" />
+                                      </svg>
+                                      <span>{meta.label}</span>
+                                    </>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="pipe-error-cell">
                       {message ? (

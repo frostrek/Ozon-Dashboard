@@ -14,22 +14,14 @@ export default async function LogsPage() {
 
   if (loadError) {
     return (
-      <div>
-        <header className="page-head">
-          <h1>Logs</h1>
-          <p className="page-lead">Saved logs from pipeline runs.</p>
-        </header>
+      <div className="logs-page">
         <p className="notice notice-error" role="alert">{loadError}</p>
       </div>
     );
   }
 
   return (
-    <div>
-      <header className="page-head">
-        <h1>Logs</h1>
-        <p className="page-lead">Saved logs from pipeline runs.</p>
-      </header>
+    <div className="logs-page">
       <LogsClient initialRuns={data.runs} total={data.total} />
     </div>
   );

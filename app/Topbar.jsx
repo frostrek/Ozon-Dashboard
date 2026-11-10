@@ -197,7 +197,7 @@ export default function Topbar() {
           </button>
           {accountOpen ? (
             <div className="flyout">
-              <button type="button" onClick={logout}>Sign out</button>
+              <button type="button" className="topbar-signout-btn" onClick={logout}>Sign out</button>
             </div>
           ) : null}
         </div>

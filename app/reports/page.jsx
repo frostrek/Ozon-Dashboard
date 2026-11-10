@@ -1,5 +1,6 @@
 import { listReportsPage, REPORT_PAGE_SIZE } from '../../lib/reports/listReports';
 import ReportsClient from './ReportsClient';
+import { prisma } from '../../lib/prisma';
 import { toPlain } from '../../lib/toPlain';
 import FriendlyError from '../components/FriendlyError';
 
@@ -7,15 +8,16 @@ export const dynamic = 'force-dynamic';
 
 export default async function ReportsPage() {
   try {
-    const data = await listReportsPage({ page: 1, pageSize: REPORT_PAGE_SIZE });
+    const [data, accountRows] = await Promise.all([
+      listReportsPage({ page: 1, pageSize: REPORT_PAGE_SIZE }),
+      prisma.account.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+    ]);
     return (
-      <div>
-        <header className="page-head">
-          <h1>Reports</h1>
-          <p className="page-lead">PDFs and Excel files from finished pipeline runs. Live logs are on the Pipeline page.</p>
-        </header>
-        <ReportsClient initialReports={toPlain(data.reports) || []} total={Number(data.total) || 0} />
-      </div>
+      <ReportsClient
+        initialReports={toPlain(data.reports) || []}
+        total={Number(data.total) || 0}
+        accounts={toPlain(accountRows) || []}
+      />
     );
   } catch (error) {
     console.error('[reports-page]', error);

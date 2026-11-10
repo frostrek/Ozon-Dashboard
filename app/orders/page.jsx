@@ -10,6 +10,10 @@ export default async function OrdersPage({ searchParams }) {
   const statusFilter = searchParams?.status || 'ALL';
   const accountFilter = searchParams?.account || 'all';
   const dateFilter = searchParams?.date || 'all';
+  const fromFilter = searchParams?.from || '';
+  const toFilter = searchParams?.to || '';
+  const fromTimeFilter = searchParams?.fromTime || '';
+  const toTimeFilter = searchParams?.toTime || '';
   const searchFilter = searchParams?.q || '';
 
   try {
@@ -20,6 +24,10 @@ export default async function OrdersPage({ searchParams }) {
         status: statusFilter,
         account: accountFilter,
         date: dateFilter,
+        from: fromFilter,
+        to: toFilter,
+        fromTime: fromTimeFilter,
+        toTime: toTimeFilter,
         q: searchFilter,
       }),
       orderStatusCounts(accountFilter),
@@ -45,6 +53,10 @@ export default async function OrdersPage({ searchParams }) {
         currentStatus={statusFilter}
         currentAccount={accountFilter}
         currentDate={dateFilter}
+        currentFrom={fromFilter}
+        currentTo={toFilter}
+        currentFromTime={fromTimeFilter}
+        currentToTime={toTimeFilter}
         currentSearch={searchFilter}
         filteredCount={data.filteredCount}
       />

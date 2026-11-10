@@ -1,7 +1,9 @@
 import { prisma } from '../../lib/prisma';
 import { redirect } from 'next/navigation';
-import AccountForm from './AccountForm';
-import AccountsList from './AccountsList';
+import AccountsClient from './AccountsClient';
+import { withCache } from '../../lib/cache/upstash';
+
+export const dynamic = 'force-dynamic';
 
 async function addAccount(_previous, formData) {
   'use server';
@@ -32,56 +34,71 @@ function formatSync(value) {
   });
 }
 
-export default async function AccountsPage({ searchParams }) {
-  const accounts = await prisma.account.findMany({ orderBy: { name: 'asc' } });
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
+async function getAccountsOverview() {
+  return withCache('accounts:overview:v2', 30, async () => {
+    const accounts = await prisma.account.findMany({ orderBy: { name: 'asc' } });
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
 
-  const rows = await Promise.all(accounts.map(async (account) => {
-    const [processedToday, lastSuccess, running] = await Promise.all([
-      prisma.pipelineRun.aggregate({
-        _sum: { orders_processed: true },
-        where: { account_id: account.id, start_time: { gte: startOfToday } },
-      }),
-      prisma.pipelineRun.findFirst({
-        where: { account_id: account.id, status: 'success' },
-        orderBy: { start_time: 'desc' },
-        select: { start_time: true },
-      }),
-      prisma.pipelineRun.findFirst({
-        where: { account_id: account.id, status: 'running' },
-        select: { id: true },
-      }),
-    ]);
+    let totalOrdersToday = 0;
+    let activeAccounts = 0;
+    let anyRunning = false;
 
-    const summed = processedToday._sum.orders_processed;
+    const rows = await Promise.all(accounts.map(async (account) => {
+      const [processedToday, lastSuccess, running] = await Promise.all([
+        prisma.pipelineRun.aggregate({
+          _sum: { orders_processed: true },
+          where: { account_id: account.id, start_time: { gte: startOfToday } },
+        }),
+        prisma.pipelineRun.findFirst({
+          where: { account_id: account.id, status: 'success' },
+          orderBy: { start_time: 'desc' },
+          select: { start_time: true },
+        }),
+        prisma.pipelineRun.findFirst({
+          where: { account_id: account.id, status: 'running' },
+          select: { id: true },
+        }),
+      ]);
 
-    return {
-      id: account.id,
-      name: account.name,
-      clientId: account.client_id,
-      active: account.active,
-      ordersToday: summed == null ? 0 : summed,
-      lastSync: formatSync(lastSuccess?.start_time || null),
-      running: Boolean(running),
+      const summed = processedToday._sum.orders_processed || 0;
+      totalOrdersToday += summed;
+      if (account.active) activeAccounts += 1;
+      if (running) anyRunning = true;
+
+      return {
+        id: account.id,
+        name: account.name,
+        clientId: account.client_id,
+        active: account.active,
+        ordersToday: summed,
+        lastSync: formatSync(lastSuccess?.start_time || null),
+        running: Boolean(running),
+      };
+    }));
+
+    const stats = {
+      totalAccounts: accounts.length,
+      activeAccounts,
+      totalOrdersToday,
+      anyRunning,
     };
-  }));
+
+    return { rows, stats };
+  });
+}
+
+export default async function AccountsPage({ searchParams }) {
+  const { rows, stats } = await getAccountsOverview();
 
   return (
     <div className="accounts-page">
-      <header className="accounts-head">
-        <div>
-          <h1>Accounts</h1>
-          <p>Manage your Ozon seller accounts. Add a client ID and API key, then run the pipeline for that account.</p>
-        </div>
-        <div className="dash-status-pill">
-          <span className="dash-status-dot" />
-          <span>Database connected</span>
-        </div>
-      </header>
-
-      <AccountForm action={addAccount} saved={searchParams?.added === '1'} />
-      <AccountsList rows={rows} />
+      <AccountsClient
+        rows={rows}
+        stats={stats}
+        action={addAccount}
+        saved={searchParams?.added === '1'}
+      />
     </div>
   );
 }
