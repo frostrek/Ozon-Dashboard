@@ -80,6 +80,18 @@ const MAIN_LINKS = [
     ),
   },
   {
+    href: '/charges',
+    label: 'Order Charges',
+    icon: (
+      <NavIcon>
+        <path d="M14 2H6a2 2 0 0 0-2 2v16l3-1.5 3 1.5 3-1.5 3 1.5 3-1.5 3 1.5V8z" />
+        <path d="M14 2v6h6" />
+        <path d="M8 13h4" />
+        <path d="M8 17h8" />
+      </NavIcon>
+    ),
+  },
+  {
     href: '/orders',
     label: 'Orders',
     icon: (
