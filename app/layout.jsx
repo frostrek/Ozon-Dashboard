@@ -1,8 +1,9 @@
+import { Suspense } from 'react';
 import { cookies } from 'next/headers';
 import { Inter } from 'next/font/google';
 import './globals.css';
-import SidebarNav from './SidebarNav';
-import LogoutButton from './LogoutButton';
+import AppSidebar from './AppSidebar';
+import TopProgressBar from './components/TopProgressBar';
 import { COOKIE_NAME, verifySessionToken } from '../lib/auth';
 
 const inter = Inter({ subsets: ['latin'], display: 'swap' });
@@ -18,19 +19,12 @@ export default async function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className={inter.className}>
+        <Suspense fallback={null}>
+          <TopProgressBar />
+        </Suspense>
         {signedIn ? (
           <div className="layout">
-            <aside className="sidebar">
-              <div className="brand">
-                <span className="brand-mark" aria-hidden="true">Oz</span>
-                <div>
-                  <h2>Ozon</h2>
-                  <p>Fulfillment</p>
-                </div>
-              </div>
-              <SidebarNav />
-              <LogoutButton />
-            </aside>
+            <AppSidebar />
 
             <main className="main-content">
               <div className="content-area">
