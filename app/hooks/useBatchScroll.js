@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-export const FETCH_SIZE = 100;
+export const FETCH_SIZE = 25;
 export const UI_BATCH = 10;
 
 export function useBatchScroll({
