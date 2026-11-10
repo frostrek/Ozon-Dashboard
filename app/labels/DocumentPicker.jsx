@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import TypeSelect from '../components/TypeSelect';
 import { useBatchScroll } from '../hooks/useBatchScroll';
 import ListPager from '../components/ListPager';
 
 const EMPTY_FILTERS = {
   account: 'all',
+  status: 'ALL',
   from: '',
   to: '',
   warehouse: '',
@@ -15,9 +16,9 @@ const EMPTY_FILTERS = {
 };
 
 function activeFilterCount(filters) {
-  return ['account', 'from', 'to', 'warehouse', 'sku', 'q'].filter((key) => {
+  return ['account', 'status', 'from', 'to', 'warehouse', 'sku', 'q'].filter((key) => {
     const value = filters[key];
-    return value && value !== 'all';
+    return value && value !== 'all' && value !== 'ALL';
   }).length;
 }
 
@@ -44,6 +45,15 @@ function saveBlob(blob, filename) {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(link.href);
+}
+
+function savePdfUrl(url, filename) {
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename || 'thermal-labels.pdf';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 }
 
 async function requestDocument(kind, orderIds, lines, postingNumbers) {
@@ -85,7 +95,9 @@ async function downloadDocument(kind, orderIds, lines, postingNumbers = [], onPr
     let printed = 0;
     for (let index = 0; index < postingNumbers.length; index += SHIP_CHUNK) {
       const chunk = postingNumbers.slice(index, index + SHIP_CHUNK);
-      onProgress?.(Math.min(index + chunk.length, postingNumbers.length), postingNumbers.length);
+      const doneCount = Math.min(index + chunk.length, postingNumbers.length);
+      const pct = Math.round((doneCount / postingNumbers.length) * 100);
+      onProgress?.(doneCount, postingNumbers.length, pct);
       const chunkLines = lines.filter((line) => chunk.includes(line.postingNumber));
       const chunkIds = [...new Set(chunkLines.map((line) => line.orderId).filter(Boolean))];
       const part = await requestDocument('shipping', chunkIds, chunkLines, chunk);
@@ -110,21 +122,35 @@ async function downloadDocument(kind, orderIds, lines, postingNumbers = [], onPr
   return part.note;
 }
 
-export default function DocumentPicker({ onMessage }) {
+export default function DocumentPicker({ onMessage, onGenerated }) {
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [draft, setDraft] = useState(EMPTY_FILTERS);
   const [accounts, setAccounts] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
-  const [products, setProducts] = useState([]);
+  const [rawProducts, setRawProducts] = useState([]);
+  const [quickTab, setQuickTab] = useState('ALL');
   const [selected, setSelected] = useState(() => new Set());
   const [state, setState] = useState('loading');
   const [busy, setBusy] = useState('');
-  const [progress, setProgress] = useState('');
+  const [progressStage, setProgressStage] = useState('');
+  const [progressPercent, setProgressPercent] = useState(0);
   const [filtersOpen, setFiltersOpen] = useState(false);
+
+  // Optimization 3: Instant in-memory tab switching (0ms delay)
+  function setQuickStatus(nextStatus) {
+    setQuickTab(nextStatus);
+  }
+
+  const products = useMemo(() => {
+    if (!quickTab || quickTab === 'ALL') return rawProducts;
+    return rawProducts.filter((row) => row.status === quickTab);
+  }, [rawProducts, quickTab]);
 
   useEffect(() => {
     const params = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => {
+      // Don't send status to server if user is using quick tabs
+      if (key === 'status') return;
       if (value && value !== 'all') params.set(key, value);
     });
     let cancelled = false;
@@ -139,7 +165,7 @@ export default function DocumentPicker({ onMessage }) {
         if (cancelled) return;
         setAccounts(data.accounts || []);
         setWarehouses(data.warehouses || []);
-        setProducts(data.products || []);
+        setRawProducts(data.products || []);
         setSelected(new Set());
         setState('ready');
       })
@@ -189,7 +215,8 @@ export default function DocumentPicker({ onMessage }) {
     if (!chosen.length || busy) return;
     const postings = [...new Set(chosen.map((row) => row.postingNumber).filter(Boolean))];
     setBusy(kind);
-    setProgress(kind === 'shipping' ? `0 of ${postings.length}` : '');
+    setProgressPercent(15);
+    setProgressStage(kind === 'shipping' ? `Starting download for ${postings.length} shipping labels...` : 'Rendering product list with photos...');
     try {
       const message = await downloadDocument(
         kind,
@@ -203,23 +230,112 @@ export default function DocumentPicker({ onMessage }) {
           warehouse: row.warehouse,
         })),
         postings,
-        (done, total) => setProgress(`${done} of ${total}`),
+        (done, total, pct) => {
+          setProgressPercent(pct || Math.round((done / total) * 100));
+          setProgressStage(`Downloading labels: ${done} of ${total} completed`);
+        },
       );
+      setProgressPercent(100);
+      setProgressStage('Download complete!');
       onMessage?.(message || (kind === 'shipping'
         ? `Downloaded ${postings.length} shipping labels.`
         : `Downloaded product list with ${chosen.length} products.`));
     } catch (err) {
       onMessage?.(err.message, 'error');
     } finally {
-      setBusy('');
-      setProgress('');
+      setTimeout(() => {
+        setBusy('');
+        setProgressStage('');
+        setProgressPercent(0);
+      }, 700);
+    }
+  }
+
+  // Optimization 1: 1-Click Direct 4x6 Thermal Label Generation
+  async function generateDirectThermalLabels() {
+    const chosen = products.filter((row) => selected.has(row.key));
+    if (!chosen.length || busy) return;
+    const postings = [...new Set(chosen.map((row) => row.postingNumber).filter(Boolean))];
+    const orderIds = [...new Set(chosen.map((row) => row.orderId))];
+    const lines = chosen.map((row) => ({
+      orderId: row.orderId,
+      sku: row.sku,
+      name: row.name,
+      quantity: row.quantity,
+      postingNumber: row.postingNumber,
+      warehouse: row.warehouse,
+    }));
+
+    setBusy('direct');
+    setProgressStage('Step 1/3: Packing orders & fetching Ozon shipping labels...');
+    setProgressPercent(20);
+
+    try {
+      // 1. Fetch Shipping Labels (chunked if > SHIP_CHUNK)
+      let shippingBuffer;
+      if (postings.length > SHIP_CHUNK) {
+        const buffers = [];
+        for (let i = 0; i < postings.length; i += SHIP_CHUNK) {
+          const chunk = postings.slice(i, i + SHIP_CHUNK);
+          const done = Math.min(i + chunk.length, postings.length);
+          const pct = Math.round(20 + (done / postings.length) * 35);
+          setProgressPercent(pct);
+          setProgressStage(`Step 1/3: Fetching shipping labels (${done} of ${postings.length})...`);
+          const chunkLines = lines.filter((l) => chunk.includes(l.postingNumber));
+          const chunkIds = [...new Set(chunkLines.map((l) => l.orderId).filter(Boolean))];
+          const part = await requestDocument('shipping', chunkIds, chunkLines, chunk);
+          buffers.push(part.bytes);
+        }
+        shippingBuffer = await mergePdfBuffers(buffers);
+      } else {
+        const part = await requestDocument('shipping', orderIds, lines, postings);
+        shippingBuffer = part.bytes;
+      }
+
+      // 2. Fetch Product List PDF
+      setProgressStage('Step 2/3: Rendering translated product list with photos...');
+      setProgressPercent(65);
+      const productPart = await requestDocument('product', orderIds, lines, postings);
+      const productBuffer = productPart.bytes;
+
+      // 3. Send both to /api/labels/process
+      setProgressStage('Step 3/3: Stitching 4×6 thermal labels with barcodes...');
+      setProgressPercent(85);
+
+      const formData = new FormData();
+      formData.append('shippingLabel', new Blob([shippingBuffer], { type: 'application/pdf' }), 'shipping-labels.pdf');
+      formData.append('productList', new Blob([productBuffer], { type: 'application/pdf' }), 'product-list.pdf');
+
+      const processRes = await fetch('/api/labels/process', { method: 'POST', body: formData });
+      const processData = await processRes.json().catch(() => ({}));
+      if (!processRes.ok) throw new Error(processData.error || 'Failed to compile 4x6 thermal labels.');
+
+      setProgressPercent(100);
+      setProgressStage('Labels compiled successfully!');
+
+      const labelCount = processData.labelCount || postings.length;
+      onMessage?.(`Generated ${labelCount} thermal labels! Ready to print.`);
+      onGenerated?.(processData);
+
+      if (processData.downloadUrl) {
+        savePdfUrl(processData.downloadUrl, processData.filename || 'thermal-labels.pdf');
+      }
+    } catch (err) {
+      console.error('Direct thermal label generation failed:', err);
+      onMessage?.(err.message || 'Could not compile thermal labels.', 'error');
+    } finally {
+      setTimeout(() => {
+        setBusy('');
+        setProgressStage('');
+        setProgressPercent(0);
+      }, 700);
     }
   }
 
   const scroll = useBatchScroll({
     initialItems: products,
     initialTotal: products.length,
-    resetKey: `${filters.account}|${filters.from}|${filters.to}|${filters.warehouse}|${filters.q}|${filters.sku}|${products.length}`,
+    resetKey: `${filters.account}|${filters.status}|${filters.from}|${filters.to}|${filters.warehouse}|${filters.q}|${filters.sku}|${products.length}`,
     itemKey: 'key',
     pageMode: true,
   });
@@ -237,7 +353,35 @@ export default function DocumentPicker({ onMessage }) {
       <div className="label-panel-head">
         <div>
           <h2>Download from Ozon</h2>
-          <p>Orders that are ready to pack or waiting for pickup are listed. Downloading shipping labels packs ready-to-pack orders on Ozon first, then prints the labels.</p>
+        </div>
+      </div>
+
+      {/* Top Quick Filter Tabs */}
+      <div className="label-tabs-row">
+        <div className="label-status-tabs" role="tablist" aria-label="Order status filter">
+          <button
+            type="button"
+            className={`label-tab-pill ${(quickTab || 'ALL') === 'ALL' ? 'is-active' : ''}`}
+            onClick={() => setQuickStatus('ALL')}
+          >
+            All Orders
+          </button>
+          <button
+            type="button"
+            className={`label-tab-pill is-pack ${quickTab === 'AWAITING_PACKAGING' ? 'is-active' : ''}`}
+            onClick={() => setQuickStatus('AWAITING_PACKAGING')}
+          >
+            <span className="label-pill-dot is-amber" aria-hidden="true" />
+            Ready to Pack
+          </button>
+          <button
+            type="button"
+            className={`label-tab-pill is-deliver ${quickTab === 'AWAITING_DELIVERY' ? 'is-active' : ''}`}
+            onClick={() => setQuickStatus('AWAITING_DELIVERY')}
+          >
+            <span className="label-pill-dot is-teal" aria-hidden="true" />
+            Waiting Pickup
+          </button>
         </div>
       </div>
 
@@ -251,29 +395,76 @@ export default function DocumentPicker({ onMessage }) {
             onClick={() => setFiltersOpen((open) => !open)}
           >
             <FilterIcon />
-            Filters
+            Filter
             {activeFilterCount(filters) > 0 ? <span className="label-filter-count">{activeFilterCount(filters)}</span> : null}
           </button>
-          <p>
-          {state === 'loading'
-            ? 'Loading orders...'
-            : `${products.length} product${products.length === 1 ? '' : 's'}${selected.size ? ` · ${selected.size} selected` : ''}`}
-          {products.length > 0 ? (
-            <button type="button" className="label-select-all" onClick={toggleAll}>
-              {allChecked ? 'Clear selection' : `Select all ${products.length}`}
-            </button>
-          ) : null}
-          </p>
+
+          <div className="label-counts-inline">
+            <span>
+              {state === 'loading'
+                ? 'Loading orders...'
+                : `${products.length} product${products.length === 1 ? '' : 's'}${selected.size ? ` · ${selected.size} selected` : ''}`}
+            </span>
+            {products.length > 0 ? (
+              <button type="button" className="label-select-all" onClick={toggleAll}>
+                {allChecked ? 'Clear selection' : 'Select all'}
+              </button>
+            ) : null}
+          </div>
         </div>
-        <div>
-          <button type="button" className="dash-outline" disabled={!selected.size || Boolean(busy)} onClick={() => download('shipping')}>
-            {busy === 'shipping' ? `Downloading labels ${progress || selected.size}...` : 'Download shipping labels'}
+
+        <div className="label-actions-group">
+          {/* Optimization 1: 1-Click Direct 4x6 Thermal Label Button */}
+          <button
+            type="button"
+            className="dash-primary label-btn-direct"
+            disabled={!selected.size || Boolean(busy)}
+            onClick={generateDirectThermalLabels}
+            title="Automatically fetch Ozon labels, merge product photos, and compile 4x6 thermal labels"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
+            <span>{busy === 'direct' ? 'Compiling 4×6 Labels...' : '⚡ Generate 4×6 Thermal Labels'}</span>
           </button>
-          <button type="button" className="dash-primary" disabled={!selected.size || Boolean(busy)} onClick={() => download('product')}>
-            {busy === 'product' ? 'Downloading list...' : 'Download product list'}
+
+          <button
+            type="button"
+            className="dash-outline label-btn-ship"
+            disabled={!selected.size || Boolean(busy)}
+            onClick={() => download('shipping')}
+          >
+            {busy === 'shipping' ? 'Downloading...' : 'Download Shipping Labels'}
+          </button>
+          <button
+            type="button"
+            className="dash-outline"
+            disabled={!selected.size || Boolean(busy)}
+            onClick={() => download('product')}
+          >
+            {busy === 'product' ? 'Downloading...' : 'Download Product List'}
           </button>
         </div>
       </div>
+
+      {/* Optimization 3: Visual Batch Progress Bar */}
+      {busy ? (
+        <div className="label-progress-box" role="status" aria-live="polite">
+          <div className="label-progress-header">
+            <span className="label-progress-title">
+              <span className="pipe-spinner-sm" aria-hidden="true" />
+              {progressStage || 'Processing batch...'}
+            </span>
+            <span className="label-progress-pct">{progressPercent}%</span>
+          </div>
+          <div className="label-progress-track">
+            <div
+              className="label-progress-fill"
+              style={{ width: `${Math.max(5, Math.min(100, progressPercent))}%` }}
+            />
+          </div>
+        </div>
+      ) : null}
 
       {filtersOpen ? (
         <form id="label-filters" className="label-filters" onSubmit={applyFilters}>
@@ -346,7 +537,7 @@ export default function DocumentPicker({ onMessage }) {
                 <td>{row.sku || '—'}</td>
                 <td>{row.quantity || '—'}</td>
                 <td>{row.postingNumber}</td>
-                <td><span className="label-status">{row.statusLabel}</span></td>
+                <td><span className={`label-status is-${String(row.status || '').toLowerCase().replace(/_/g, '-')}`}>{row.statusLabel}</span></td>
                 <td>{row.warehouse || '—'}</td>
                 <td>{shipBy(row.shipBy)}</td>
               </tr>

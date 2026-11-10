@@ -1,12 +1,16 @@
-import { templateCsv } from '../../../../../lib/ozon/parseProductSheet';
+import { buildProductTemplateWorkbook } from '../../../../../lib/ozon/parseProductSheet';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  return new Response(templateCsv(), {
+  const wb = await buildProductTemplateWorkbook();
+  const buffer = await wb.xlsx.writeBuffer();
+
+  return new Response(buffer, {
     headers: {
-      'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': 'attachment; filename="ozon-product-template.csv"',
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="ozon-product-template.xlsx"',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
     },
   });
 }

@@ -155,8 +155,8 @@ export default function AddProductForm({ accounts, onClose, existingProducts = [
 
         {/* Variant toggle box */}
         <div style={{
-          background: isVariant ? '#EFF6FF' : '#F8FAFC',
-          border: `1px solid ${isVariant ? '#BFDBFE' : '#E2E8F0'}`,
+          background: isVariant ? '#E8F5F4' : '#F4FAF9',
+          border: `1px solid ${isVariant ? '#B2E0DC' : '#CCECE8'}`,
           borderRadius: '8px',
           padding: '12px 14px',
           marginBottom: '14px',
@@ -189,7 +189,7 @@ export default function AddProductForm({ accounts, onClose, existingProducts = [
                     width: '100%',
                     padding: '8px 10px',
                     borderRadius: '6px',
-                    border: '1px solid #CBD5E1',
+                    border: '1px solid #CCECE8',
                     background: '#fff',
                     fontSize: '13px',
                   }}

@@ -1,5 +1,26 @@
 'use client';
 
+function printPdf(url) {
+  if (!url) return;
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  iframe.src = url;
+  iframe.onload = () => {
+    try {
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    } catch {
+      window.open(url, '_blank');
+    }
+  };
+  document.body.appendChild(iframe);
+}
+
 import { useEffect, useRef, useState } from 'react';
 import DocumentPicker from './DocumentPicker';
 import ToastStack, { useToasts } from '../ToastStack';
@@ -69,95 +90,40 @@ function Icon({ name }) {
   );
 }
 
-function DropPanel({ id, title, help, file, busy, onFile, onReject }) {
-  const inputRef = useRef(null);
-  const [over, setOver] = useState(false);
-  const [error, setError] = useState('');
-
-  function accept(next) {
-    if (!next || busy) return;
-    if (!isPdf(next)) {
-      setError('This file is not a PDF. Choose another file.');
-      onReject();
-      return;
-    }
-    setError('');
-    onFile(next);
-  }
-
+function PrinterHeaderIcon() {
   return (
-    <div className={`label-panel${error ? ' is-bad' : ''}${file ? ' is-ready' : ''}`}>
-      <div className="label-panel-head">
-        <span className="label-mark"><Icon name="file" /></span>
-        <div>
-          <h2>{title}</h2>
-          <p>{help}</p>
-        </div>
-      </div>
-      <div
-        className={`label-drop${over ? ' is-over' : ''}${file ? ' has-file' : ''}${busy ? ' is-busy' : ''}`}
-        onDragOver={(event) => {
-          event.preventDefault();
-          if (!busy) setOver(true);
-        }}
-        onDragLeave={() => setOver(false)}
-        onDrop={(event) => {
-          event.preventDefault();
-          setOver(false);
-          accept(event.dataTransfer.files?.[0] || null);
-        }}
-      >
-        {file ? (
-          <div className="label-file">
-            <span className="label-mark"><Icon name="file" /></span>
-            <div>
-              <strong title={file.name}>{file.name}</strong>
-              <p>
-                {formatSize(file.size) || 'Size unavailable'}
-                <span aria-hidden="true"> · </span>
-                Ready
-              </p>
-            </div>
-            <span className="label-ok" aria-label="PDF accepted"><Icon name="check" /></span>
-            <button type="button" className="dash-outline" disabled={busy} onClick={() => inputRef.current?.click()}>
-              Replace
-            </button>
-          </div>
-        ) : (
-          <>
-            <span className="label-cloud"><Icon name="upload" /></span>
-            <span>{over ? 'Drop the PDF here.' : 'Drag and drop your PDF here.'}</span>
-            <label htmlFor={id} className="dash-outline label-browse">Browse file</label>
-          </>
-        )}
-        <input
-          ref={inputRef}
-          id={id}
-          type="file"
-          accept="application/pdf,.pdf"
-          disabled={busy}
-          onChange={(event) => {
-            accept(event.target.files?.[0] || null);
-            event.target.value = '';
-          }}
-        />
-      </div>
-      {error ? <p className="label-field-error" role="alert">{error}</p> : null}
-    </div>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '20px', height: '20px', color: '#10756F' }} aria-hidden="true">
+      <polyline points="6 9 6 2 18 2 18 9" />
+      <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+      <rect x="6" y="14" width="12" height="8" rx="1" fill="#FFFFFF" />
+      <circle cx="18" cy="14" r="1" fill="currentColor" />
+    </svg>
   );
 }
 
-function StudioMark() {
+function FilePdfIcon() {
   return (
-    <svg className="label-studio-art" viewBox="0 0 220 140" aria-hidden="true">
-      <rect x="18" y="28" width="128" height="84" rx="10" fill="#FFFFFF" stroke="#DBE7FF" />
-      <rect x="30" y="42" width="72" height="8" rx="3" fill="#2563EB" />
-      <rect x="30" y="58" width="104" height="5" rx="2" fill="#E2E8F0" />
-      <rect x="30" y="70" width="88" height="5" rx="2" fill="#E2E8F0" />
-      <rect x="30" y="86" width="64" height="14" rx="2" fill="#172033" />
-      <path d="M148 46h46a8 8 0 0 1 8 8v52a8 8 0 0 1-8 8h-46" fill="#EFF6FF" stroke="#BFDBFE" />
-      <rect x="162" y="62" width="28" height="18" rx="3" fill="#FFFFFF" stroke="#93C5FD" />
-      <path d="M168 90h18M168 96h12" stroke="#2563EB" strokeWidth="2" strokeLinecap="round" />
+    <svg viewBox="0 0 32 36" fill="none" style={{ width: '28px', height: '32px' }} aria-hidden="true">
+      <defs>
+        <linearGradient id="pdfBodyGrad" x1="4" y1="2" x2="26" y2="34" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#FFFFFF" />
+          <stop offset="100%" stopColor="#F1F5F9" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M6 4C6 2.89543 6.89543 2 8 2H20L28 10V32C28 33.1046 27.1046 34 26 34H8C6.89543 34 6 33.1046 6 32V4Z"
+        fill="url(#pdfBodyGrad)"
+        stroke="#CBD5E1"
+        strokeWidth="1.2"
+      />
+      <path d="M20 2V9C20 9.55228 20.4477 10 21 10H28" fill="#E2E8F0" stroke="#CBD5E1" strokeWidth="1.2" />
+      <rect x="10" y="14" width="2" height="7" rx="0.5" fill="#1E293B" />
+      <rect x="13" y="14" width="1" height="7" rx="0.5" fill="#1E293B" />
+      <rect x="15.5" y="14" width="2.5" height="7" rx="0.5" fill="#1E293B" />
+      <rect x="19.5" y="14" width="1" height="7" rx="0.5" fill="#1E293B" />
+      <rect x="22" y="14" width="2" height="7" rx="0.5" fill="#1E293B" />
+      <rect x="8.5" y="24" width="15" height="6.5" rx="2" fill="#EF4444" />
+      <text x="16" y="28.8" fill="#FFFFFF" fontSize="4.2" fontWeight="800" textAnchor="middle" fontFamily="system-ui, sans-serif" letterSpacing="0.3">PDF</text>
     </svg>
   );
 }
@@ -248,91 +214,65 @@ export default function LabelsClient() {
   return (
     <div className="label-page">
       <header className="label-hero">
-        <div>
-          <h1>Label Generator</h1>
-          <p>Find eligible orders, download shipping documents, and generate thermal labels.</p>
-        </div>
-        <div className="label-studio" aria-hidden="true">
-          <StudioMark />
+        <div className="label-hero-main">
+          <h1>Labels</h1>
         </div>
       </header>
 
-      <DocumentPicker onMessage={push} />
+      <DocumentPicker
+        onMessage={push}
+        onGenerated={(data) => {
+          setResult(data);
+          setLatestState('ready');
+        }}
+      />
       <ToastStack toasts={toasts} onDismiss={dismiss} />
-
-      <div className="label-layout">
-        <form onSubmit={generate} className="stat-card label-form">
-          <div className="label-uploads">
-            <DropPanel
-              id="shipping-label"
-              title="Shipping label PDF"
-              help="The Ozon label file with shipment barcodes."
-              file={shippingLabel}
-              busy={busy}
-              onFile={chooseShipping}
-              onReject={() => push('Shipping label must be a PDF.', 'error')}
-            />
-            <DropPanel
-              id="product-list"
-              title="Product list PDF"
-              help="The product list used to match titles."
-              file={productList}
-              busy={busy}
-              onFile={chooseProduct}
-              onReject={() => push('Product list must be a PDF.', 'error')}
-            />
-          </div>
-          <div className="label-actions">
-            <button type="submit" className="dash-primary label-generate" disabled={busy || !shippingLabel || !productList}>
-              <Icon name="file" />
-              {busy ? 'Generating...' : 'Generate Thermal Labels'}
-            </button>
-            <p>Make sure both files are PDFs and belong to the same shipment.</p>
-          </div>
-        </form>
-
-        <aside className="stat-card label-guide" aria-label="How label generation works">
-          <h2>How it works</h2>
-          <ol>
-            <li><span>1</span>Upload the shipping-label PDF.</li>
-            <li><span>2</span>Upload the product-list PDF.</li>
-            <li><span>3</span>Generate the 4×6 thermal-label PDF.</li>
-          </ol>
-        </aside>
-      </div>
 
       <section className="stat-card label-latest">
         <div className="label-latest-head">
-          <span className="label-mark"><Icon name="file" /></span>
+          <span className="label-mark"><PrinterHeaderIcon /></span>
           <div>
-            <h2>Latest file</h2>
-            <p>Your most recently generated label file.</p>
+            <h2>Latest Generated File</h2>
+            <p>Your most recently compiled thermal label document.</p>
           </div>
         </div>
 
-        {latestState === 'loading' && <p className="label-empty">Checking for a generated file...</p>}
-        {latestState === 'empty' && <p className="label-empty">No generated file yet. Generate a PDF to see it here.</p>}
+        {latestState === 'loading' && <p className="label-empty">Checking for recent files...</p>}
+        {latestState === 'empty' && <p className="label-empty">No generated file yet. Click "⚡ Generate 4×6 Thermal Labels" above to compile.</p>}
         {latestState === 'ready' && result && (
           <div className="label-doc">
-            <span className="label-doc-icon"><Icon name="file" /></span>
-            <div>
-              <strong title={result.filename || ''}>{result.filename || '—'}</strong>
+            <span className="label-doc-icon"><FilePdfIcon /></span>
+            <div className="label-doc-info">
+              <strong title={result.filename || ''}>{result.filename || 'thermal-labels.pdf'}</strong>
               <p>
-                {created ? `Generated on ${created}` : 'Generated time unavailable'}
+                {created ? `Generated ${created}` : 'Generated recently'}
                 <span aria-hidden="true"> · </span>
-                {countIsNumber
-                  ? `${result.labelCount} ${result.labelCount === 1 ? 'label' : 'labels'}`
-                  : 'Label count unavailable'}
+                <span className="label-count-badge">
+                  {countIsNumber
+                    ? `${result.labelCount} ${result.labelCount === 1 ? 'label' : 'labels'}`
+                    : 'Labels ready'}
+                </span>
               </p>
             </div>
-            {result.downloadUrl ? (
-              <a className="dash-outline label-download" href={result.downloadUrl} download={result.filename || 'thermal-labels.pdf'}>
-                <Icon name="download" />
-                Download PDF
-              </a>
-            ) : (
-              <span className="label-empty">Download unavailable</span>
-            )}
+            <div className="label-doc-actions">
+              {result.downloadUrl ? (
+                <button
+                  type="button"
+                  className="dash-primary label-print-btn"
+                  onClick={() => printPdf(result.downloadUrl)}
+                  title="Directly trigger thermal label print dialog"
+                >
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <polyline points="6 9 6 2 18 2 18 9" />
+                    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                    <rect x="6" y="14" width="12" height="8" />
+                  </svg>
+                  <span>Print Labels</span>
+                </button>
+              ) : (
+                <span className="label-empty">Download unavailable</span>
+              )}
+            </div>
           </div>
         )}
       </section>
