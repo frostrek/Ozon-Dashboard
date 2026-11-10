@@ -20,7 +20,7 @@ export default async function CatalogRunPage({ params }) {
           <h1>Sourcing run</h1>
           <p className="page-lead">This run is not on the server. Job files stay on the machine that started them, and Render removes them when the service restarts.</p>
         </header>
-        <Link className="dash-primary" href="/catalog">Back to Product Sourcing</Link>
+        <Link className="dash-primary" href="/catalog">Back to Product Scraping</Link>
       </div>
     );
   }

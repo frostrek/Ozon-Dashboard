@@ -11,6 +11,7 @@ export async function GET(request) {
       brand: url.searchParams.get('brand') || 'all',
       status: url.searchParams.get('status') || 'all',
       date: url.searchParams.get('date') || 'all',
+      maxWeight: url.searchParams.get('maxWeight') || 'all',
       page: url.searchParams.get('page') || '1',
       pageSize: url.searchParams.get('pageSize') || '100',
     });

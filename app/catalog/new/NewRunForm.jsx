@@ -82,6 +82,7 @@ export default function NewRunForm({ accounts, activeRun = null }) {
   const [accountId, setAccountId] = useState(accounts[0]?.id || '');
   const [stepId, setStepId] = useState('keyword');
   const [keyword, setKeyword] = useState('');
+  const [scrapeMode, setScrapeMode] = useState('keyword');
   const [brand, setBrand] = useState('');
   const [choice, setChoice] = useState('face-wash');
   const [category, setCategory] = useState(PRESETS[1]);
@@ -421,11 +422,64 @@ export default function NewRunForm({ accounts, activeRun = null }) {
       <p className="catalog-step-kicker">Question {stepIndex + 1} of {visibleSteps.length} · {visibleSteps[stepIndex]?.title}</p>
 
       {stepId === 'keyword' ? (
-        <label className="field">
-          <span className="field-label">Category to scrape</span>
-          <span className="field-help">For example Serum or Face Wash. This is the Amazon search.</span>
-          <input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="sunscreen" autoFocus />
-        </label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Optimization 4: Scrape Mode Toggle */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => setScrapeMode('keyword')}
+              style={{
+                padding: '7px 14px',
+                borderRadius: 8,
+                fontSize: 12.5,
+                fontWeight: 700,
+                background: scrapeMode === 'keyword' ? '#10756F' : '#F1F5F9',
+                color: scrapeMode === 'keyword' ? '#FFFFFF' : '#475569',
+                border: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              By Category / Keyword
+            </button>
+            <button
+              type="button"
+              onClick={() => setScrapeMode('asins')}
+              style={{
+                padding: '7px 14px',
+                borderRadius: 8,
+                fontSize: 12.5,
+                fontWeight: 700,
+                background: scrapeMode === 'asins' ? '#10756F' : '#F1F5F9',
+                color: scrapeMode === 'asins' ? '#FFFFFF' : '#475569',
+                border: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              ⚡ Multi-ASIN Batch (Paste List)
+            </button>
+          </div>
+
+          {scrapeMode === 'asins' ? (
+            <label className="field">
+              <span className="field-label">Paste Amazon ASINs (Comma or line separated)</span>
+              <span className="field-help">Paste up to 50 ASINs (e.g. B0D6Y4MDLY, B0D4F77ZLB, B0DGX67T1L).</span>
+              <textarea
+                rows={4}
+                value={keyword}
+                onChange={(event) => setKeyword(event.target.value)}
+                placeholder="B0D6Y4MDLY&#10;B0D4F77ZLB&#10;B0DGX67T1L"
+                style={{ fontFamily: 'monospace', fontSize: 13, padding: 10, borderRadius: 8, border: '1px solid #CCECE8' }}
+                autoFocus
+              />
+            </label>
+          ) : (
+            <label className="field">
+              <span className="field-label">Category to scrape</span>
+              <span className="field-help">For example Serum or Face Wash. This is the Amazon search.</span>
+              <input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="sunscreen" autoFocus />
+            </label>
+          )}
+        </div>
       ) : null}
 
       {stepId === 'brand' ? (

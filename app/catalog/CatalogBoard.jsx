@@ -70,6 +70,50 @@ function Icon({ name }) {
   );
 }
 
+
+function ModernTotalRunsIcon() {
+  return (
+    <div className="catalog-modern-stat-icon is-total" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+      </svg>
+    </div>
+  );
+}
+
+function ModernReadyToPushIcon() {
+  return (
+    <div className="catalog-modern-stat-icon is-ready" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <polygon points="5 3 19 12 5 21 5 3" />
+      </svg>
+    </div>
+  );
+}
+
+function ModernCompletedIcon() {
+  return (
+    <div className="catalog-modern-stat-icon is-ok" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+        <polyline points="22 4 12 14.01 9 11.01" />
+      </svg>
+    </div>
+  );
+}
+
+function ModernFailedIcon() {
+  return (
+    <div className="catalog-modern-stat-icon is-bad" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <line x1="15" y1="9" x2="9" y2="15" />
+        <line x1="9" y1="9" x2="15" y2="15" />
+      </svg>
+    </div>
+  );
+}
+
 function CatalogTabs({ current }) {
   return (
     <nav className="catalog-tabs" aria-label="Catalog sections">
@@ -180,15 +224,14 @@ export default function CatalogBoard({ runs }) {
     return (
       <div className="catalog-board">
         <header className="catalog-hero">
-          <div>
-            <h1>Product Sourcing</h1>
-            <p>Manage Amazon-to-Ozon sourcing runs and monitor publishing progress.</p>
-          </div>
+        <div>
+          <h1>Product Scraping</h1>
+        </div>
           <Link className="dash-primary catalog-new" href="/catalog/new"><Icon name="plus" />New run</Link>
         </header>
         <CatalogTabs current="runs" />
         <section className="catalog-empty">
-          <h2>No sourcing runs yet</h2>
+          <h2>No scraping runs yet</h2>
           <p>Start a run to scrape products, preview the Russian titles and USD prices, and push the ones that match the weights you choose.</p>
           <Link className="dash-primary" href="/catalog/new">Start a run</Link>
         </section>
@@ -200,8 +243,7 @@ export default function CatalogBoard({ runs }) {
     <div className="catalog-board">
       <header className="catalog-hero">
         <div>
-          <h1>Product Sourcing</h1>
-          <p>Manage Amazon-to-Ozon sourcing runs and monitor publishing progress.</p>
+          <h1>Product Scraping</h1>
         </div>
         <Link className="dash-primary catalog-new" href="/catalog/new"><Icon name="plus" />New run</Link>
       </header>
@@ -219,21 +261,21 @@ export default function CatalogBoard({ runs }) {
       ))}
 
       <section className="catalog-stats" aria-label="Run totals">
-        <article>
-          <span className="catalog-stat-icon is-total"><Icon name="runs" /></span>
-          <div><p>Total runs</p><strong>{counts.total}</strong></div>
+        <article className="catalog-stat-clean">
+          <p>Total runs</p>
+          <strong style={{ color: '#0C5D58' }}>{counts.total}</strong>
         </article>
-        <article>
-          <span className="catalog-stat-icon is-ready"><Icon name="ready" /></span>
-          <div><p>Ready to push</p><strong>{counts.ready}</strong></div>
+        <article className="catalog-stat-clean">
+          <p>Ready to push</p>
+          <strong style={{ color: '#7C3AED' }}>{counts.ready}</strong>
         </article>
-        <article>
-          <span className="catalog-stat-icon is-ok"><Icon name="ok" /></span>
-          <div><p>Completed</p><strong>{counts.completed}</strong></div>
+        <article className="catalog-stat-clean">
+          <p>Completed</p>
+          <strong style={{ color: '#059669' }}>{counts.completed}</strong>
         </article>
-        <article>
-          <span className="catalog-stat-icon is-bad"><Icon name="bad" /></span>
-          <div><p>Failed</p><strong>{counts.failed}</strong></div>
+        <article className="catalog-stat-clean">
+          <p>Failed</p>
+          <strong style={{ color: '#DC2626' }}>{counts.failed}</strong>
         </article>
       </section>
 

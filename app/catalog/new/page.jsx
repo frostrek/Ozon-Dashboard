@@ -19,7 +19,7 @@ export default async function NewCatalogRunPage() {
   return (
     <div>
       <header className="page-head">
-        <h1>New sourcing run</h1>
+        <h1>New scraping run</h1>
         <p className="page-lead">
           Fill in the run one step at a time. Scraping and the Ozon push stay in the job runner.
         </p>
