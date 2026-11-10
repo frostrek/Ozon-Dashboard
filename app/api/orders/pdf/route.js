@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '../../../../lib/prisma';
 import { renderOrdersToPdf } from '../../../../03-generate.js';
 import { translateBulk } from '../../../../lib/labels/utils/translate';
+import { renderThermalLabelsForOrders } from '../../../../lib/labels/thermalOrderService';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -100,36 +101,55 @@ async function translateOrdersForPdf(orders) {
 export async function POST(request) {
   const body = await request.json().catch(() => ({}));
   const ids = [...new Set((Array.isArray(body.ids) ? body.ids : []).map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 250);
+  const format = String(body.format || 'thermal').toLowerCase();
+
   if (!ids.length) {
     return NextResponse.json({ error: 'Select at least one order.' }, { status: 400 });
   }
 
   const rows = await prisma.order.findMany({
     where: { id: { in: ids } },
-    select: { id: true, raw_json: true },
+    include: { account: true },
   });
   const byId = new Map(rows.map((row) => [row.id, row]));
   const orders = [];
   for (const id of ids) {
-    const raw = byId.get(id)?.raw_json;
-    if (!raw) continue;
+    const row = byId.get(id);
+    if (!row) continue;
+    let parsed = {};
     try {
-      orders.push(JSON.parse(raw));
-    } catch {
-      // Skip a row whose stored order data cannot be read.
-    }
+      parsed = row.raw_json ? JSON.parse(row.raw_json) : {};
+    } catch {}
+    orders.push({
+      ...row,
+      parsed,
+      ...parsed,
+      posting_number: row.posting_number || parsed.posting_number,
+    });
   }
   if (!orders.length) {
     return NextResponse.json({ error: 'The selected orders have no saved details to print.' }, { status: 400 });
   }
 
   try {
-    const translatedOrders = await translateOrdersForPdf(orders);
-    const pdf = await renderOrdersToPdf(translatedOrders);
+    if (format === 'manifest') {
+      const translatedOrders = await translateOrdersForPdf(orders);
+      const pdf = await renderOrdersToPdf(translatedOrders);
+      return new NextResponse(pdf, {
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': 'attachment; filename="orders-manifest.pdf"',
+          'Cache-Control': 'no-store',
+        },
+      });
+    }
+
+    // Default: 4×6 Thermal Shipping Label (matching Image 2)
+    const pdf = await renderThermalLabelsForOrders(orders);
     return new NextResponse(pdf, {
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': 'attachment; filename="orders.pdf"',
+        'Content-Disposition': 'inline; filename="thermal-labels.pdf"',
         'Cache-Control': 'no-store',
       },
     });

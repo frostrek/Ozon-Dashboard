@@ -490,14 +490,17 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
       const res = await fetch('/api/orders/pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: [orderId] }),
+        body: JSON.stringify({ ids: [orderId], format: 'thermal' }),
       });
-      if (!res.ok) throw new Error('Failed to generate PDF');
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to generate thermal label');
+      }
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
       window.open(blobUrl, '_blank');
     } catch (err) {
-      alert('Could not print label: ' + err.message);
+      alert('Could not print thermal label: ' + err.message);
     } finally {
       setPrintingRowId('');
     }
@@ -558,6 +561,10 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
         status: statusFilter || 'ALL',
         account: accountFilter || 'all',
         date: dateFilter || 'all',
+        from: dateFilter === 'custom' ? (fromDate || '') : '',
+        to: dateFilter === 'custom' ? (toDate || '') : '',
+        fromTime: dateFilter === 'custom' ? (fromTime || '') : '',
+        toTime: dateFilter === 'custom' ? (toTime || '') : '',
         q: searchFilter || '',
       });
       const response = await fetch(`/api/orders?${params}`, { cache: 'no-store' });
@@ -571,7 +578,19 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
   function applyFilters(patch) {
     if (patch.status != null) setStatusFilter(patch.status);
     if (patch.account != null) setAccountFilter(patch.account);
-    if (patch.date != null) setDateFilter(patch.date);
+    if (patch.date != null) {
+      setDateFilter(patch.date);
+      if (patch.date !== 'custom') {
+        setFromDate('');
+        setToDate('');
+        setFromTime('');
+        setToTime('');
+      }
+    }
+    if (patch.from !== undefined) setFromDate(patch.from);
+    if (patch.to !== undefined) setToDate(patch.to);
+    if (patch.fromTime !== undefined) setFromTime(patch.fromTime);
+    if (patch.toTime !== undefined) setToTime(patch.toTime);
     if (patch.q != null) setSearchFilter(patch.q);
   }
 
@@ -579,6 +598,10 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
     setStatusFilter('ALL');
     setAccountFilter('all');
     setDateFilter('all');
+    setFromDate('');
+    setToDate('');
+    setFromTime('');
+    setToTime('');
     setSearchFilter('');
     setQuery('');
   }
@@ -615,9 +638,13 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
       status: statusFilter === 'ALL' ? '' : statusFilter,
       account: accountFilter === 'all' ? '' : accountFilter,
       date: dateFilter === 'all' ? '' : dateFilter,
+      from: dateFilter === 'custom' ? fromDate : '',
+      to: dateFilter === 'custom' ? toDate : '',
+      fromTime: dateFilter === 'custom' ? fromTime : '',
+      toTime: dateFilter === 'custom' ? toTime : '',
       q: searchFilter,
     });
-  }, [searchFilter, statusFilter, accountFilter, dateFilter]);
+  }, [searchFilter, statusFilter, accountFilter, dateFilter, fromDate, toDate, fromTime, toTime]);
   
   const toggleAll = () => {
       const pageIds = visibleOrders.map((order) => order.id);
@@ -703,17 +730,17 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
       const response = await fetch('/api/orders/pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: [...selectedIds] }),
+        body: JSON.stringify({ ids: [...selectedIds], format: 'thermal' }),
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
-        setPdfError(data.error || 'The PDF could not be created.');
+        setPdfError(data.error || 'The thermal label PDF could not be created.');
         return;
       }
       const blob = await response.blob();
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
-      link.download = 'orders.pdf';
+      link.download = 'thermal-labels.pdf';
       link.click();
       URL.revokeObjectURL(link.href);
     } catch {
@@ -1020,7 +1047,7 @@ export default function OrdersClient({ orders, statusCounts, accounts, currentSt
               <option key={status} value={status}>{TARGET_LABEL[status]}</option>
             ))}
           </select>
-          <button type="button" className="dash-outline" onClick={exportSelectedPdf} disabled={selectedIds.size === 0 || pdfBusy || Boolean(docBusy)}>{pdfBusy ? 'Building PDF...' : 'Export PDF'}</button>
+          <button type="button" className="dash-outline" onClick={exportSelectedPdf} disabled={selectedIds.size === 0 || pdfBusy || Boolean(docBusy)}>{pdfBusy ? 'Building Labels...' : 'Thermal Labels (PDF)'}</button>
           <button type="button" className="dash-outline" onClick={() => downloadOzonDocument('product')} disabled={selectedIds.size === 0 || Boolean(docBusy)}>{docBusy === 'product' ? 'Downloading...' : 'Ozon product list'}</button>
           <button type="button" className={`dash-outline orders-refresh${refreshing ? ' is-busy' : ''}`} onClick={handleRefresh} disabled={refreshing}>
             <Icon><path d="M20 12a8 8 0 1 1-2.2-5.5" /><path d="M20 4v5h-5" /></Icon>

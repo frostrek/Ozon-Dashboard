@@ -73,6 +73,14 @@ body {
   border-right: 1px solid rgba(0, 0, 0, 0.08);
   transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1), padding 0.22s ease;
   position: relative;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+.sidebar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 .sidebar.is-collapsed {
@@ -228,8 +236,14 @@ body {
 .side-nav-desktop {
   flex: 1;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+.side-nav-desktop::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 .side-nav-mobile {
